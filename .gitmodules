@@ -1,0 +1,6 @@
+[submodule "deps/x86_64/efi-headers"]
+	path = deps/x86_64/efi-headers
+	url = https://github.com/kiznit/uefi-headers.git
+[submodule "deps/common/efi-headers"]
+	path = deps/common/efi-headers
+	url = https://github.com/kiznit/uefi-headers.git
