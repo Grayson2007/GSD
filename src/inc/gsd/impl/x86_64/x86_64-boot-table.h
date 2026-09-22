@@ -6,6 +6,10 @@ enum x86_64_bootmode {
         bm_efi
 };
 #define boottab_signature 'BOOT'
+
+typedef struct {
+
+} e820_style_memory_map;
 typedef struct 
 {
         u32 signature;
@@ -27,6 +31,9 @@ typedef struct
         union {
 
         } firm_info;
+        uintptr_t gsdpage_address;
+        size syspagec;
+        
         void* rsdt;
 } x86_64_BootTable;
 
