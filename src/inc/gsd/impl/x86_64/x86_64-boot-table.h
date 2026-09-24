@@ -14,6 +14,7 @@ typedef struct
 {
         u32 signature;
         enum x86_64_bootmode mode;
+
         union {
 
         } memmap;
@@ -31,13 +32,9 @@ typedef struct
         union {
 
         } firm_info;
-        uintptr_t gsdpage_address;
+        uintptr_t gsdpage_base;
         size syspagec;
-        
         void* rsdt;
 } x86_64_BootTable;
-
-#define x86_64_BootTable_Virtual_Address 0xFFFFFF80000000000UL
-
 
 #endif

@@ -9,6 +9,8 @@ void GsdQueryPageInfo(gsdpage** freelistptr,int* max_order) {
 }
 
 
+
+
 status GsdAllocatePage(int attrib,int order,gsdpage** outpage) {
         int curr_order = order;
         int capabilitys = attrib & gsdpg_capability_mask;

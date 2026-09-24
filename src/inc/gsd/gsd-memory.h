@@ -4,13 +4,16 @@
 
 #define gsdpg_capability_mask ~((1 << 5)-1)
 enum gsdpage_attrib {
-        gsdpg_active = 1,
-        gsdpg_read = (1 << 1),
-        gsdpg_write = (1 << 2),
-        gsdpg_exec = (1 << 3),
-        gsdpg_kernel = (1 << 4),
-        gsdpg_pgtable = (1 << 5),
-        gsdpg_dma_capable = (1 << 6)
+        gsdpg_valid = 1,
+        gsdpg_active = (1 << 1),
+        gsdpg_read = (1 << 2),
+        gsdpg_write = (1 << 3),
+        gsdpg_exec = (1 << 4),
+        gsdpg_kernel = (1 << 5),
+        gsdpg_pgtable = (1 << 6),
+        gsdpg_page_structure = (1 << 7),
+        gsdpg_firmware_memmap = (1 << 8)
+        
 };
 
 typedef struct s_gsdpage {
