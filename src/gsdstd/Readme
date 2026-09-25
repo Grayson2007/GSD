@@ -1,0 +1,32 @@
+# GSDSTD
+
+Standard Library for GSD
+
+### TODO
+
+Planned to Contain:
+
+- string.c -> String functions
+- fmt.c -> String Formatting 
+- alloc/sba.c -> Slab Buddy Allocator (Custom Algorithm by Grayson)
+- alloc/bump.c -> Bump Allocator 
+- intrf.c -> Interface Routines 
+- thread.c -> Thread Routines 
+- time.c -> Time Routines
+- floatmath.c -> IEE 754 Math 
+
+## Planned Headers 
+
+- gsdstring.h 
+- gsdalloc.h
+- gsdtype.h
+- gsdintrf.h
+- gsdthread.h
+- gsdtime.h
+- gsdenv.h
+- gsdfloatmath.h
+- gsdtime.h
+
+
+Will be Builtin to the kernel and a Libc wrapper will be made so it can be used with the existing C standard for non GSD systems 
+
