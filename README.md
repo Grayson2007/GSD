@@ -25,7 +25,7 @@ Some Features I'm planning to add to this kernel are
 
 ## Status So far 
 
-Currently I've been working on the UEFI Loader for the kernel and I'm first targetting x86_64 based machines. 
+Currently I've been working on the UEFI Loader for the kernel and I'm first targeting x86_64 based machines. 
 
 
 It also cannot be built or ran currently in a VM but that will change in the near future.
