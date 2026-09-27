@@ -19,7 +19,21 @@ static x86_64_BootTable* GSD_BOOT_TABLE;
 static EFI_LOADED_IMAGE* gsdboot_img;
 static EFI_SIMPLE_FILE_SYSTEM_PROTOCOL* iovol;
 static EFI_FILE_PROTOCOL* rootdir;
+static EFI_FILE_HANDLE gsdbdir;
+static EFI_FILE_HANDLE optdir;
+static int BOOT_OPT_COUNT;
+static int BOOT_OPT_SELECTED;
+#define OPTIONS_PER_PAGE 4
 extern NORETURN void ktramp(UINTN cr3,UINTN rip);
+
+struct s_bootopt {
+        CHAR16* kernal_name;
+        struct s_bootopt* next;
+        struct s_bootopt* prev;
+};
+
+struct s_bootopt* root_opt;
+struct s_bootopt* selected_opt;
 static struct {
         EFI_MEMORY_DESCRIPTOR* BASE;
         UINTN DESC_SZ;
@@ -75,9 +89,15 @@ void Clean() {
                 size mmap_pgc = (efimmap.MAPSZ >> 12) + (efimmap.MAPSZ & 0xFFF) ? 1 : 0;
                 ST->BootServices->FreePages(efimmap.BASE,mmap_pgc);
         }
-
-
-        
+        if(root_opt) {
+                struct s_bootopt* curr_opt = root_opt;
+                struct s_bootopt* next_opt;
+                while(curr_opt) {
+                        next_opt = curr_opt->next;
+                        ST->BootServices->FreePool(curr_opt);
+                        curr_opt = next_opt;
+                }
+        }
 
 }
 
@@ -278,7 +298,7 @@ void GetVol() {
 
 void LoadKernel(Elf64_Ehdr* elf)
 {
-        // verify elf
+        
 }
 
 void LoadIniramfs() {
@@ -286,6 +306,7 @@ void LoadIniramfs() {
 }
 
 NORETURN void Boot(uintptr_t RIP) {
+        ST->BootServices->ExitBootServices(IMGH,efimmap.KEY);
         ktramp(KCR3,RIP);
 }
 
@@ -296,6 +317,9 @@ void GetImage() {
 
 }
 
+void SetupGop() {
+        
+}
 
 void InitPageTable() {
         EFI_STATUS s = ST->BootServices->AllocatePages(AllocateAnyPages,EfiLoaderData,1,&KCR3);
@@ -316,22 +340,116 @@ void MarkLoader() {
         size loaderpgc = (gsdboot_img->ImageSize >> 12) + (gsdboot_img->ImageSize & 0xFFF) ? 1 : 0;
         EFI_PHYSICAL_ADDRESS addr = (EFI_PHYSICAL_ADDRESS)gsdboot_img->ImageBase;
         for(index i = 0; i < loaderpgc; i++)
-        
         {
                 EfiMarkPage(addr,addr);
                 addr += EFI_PAGE_SIZE;
         } 
 }
 
+NORETURN void BootSelected() {
+        SetupGop();
+        EFI_FILE_HANDLE kernelbin;
+        EFI_FILE_HANDLE irfsbin;
+        optdir->Open(optdir,&kernelbin,u"kernel.elf",EFI_FILE_MODE_READ,EFI_FILE_HIDDEN | EFI_FILE_ARCHIVE);
+        EFI_FILE_INFO* kernelbin_info = Finfo(kernelbin);
+        size kernsz = kernelbin_info->FileSize;
+        ST->BootServices->FreePool(kernelbin_info);
+        LoadKernel();
+        LoadIniramfs();
+        UpdateMemoryMap();
+        Boot();
+
+}
+
+
+void UpdateMenu() {
+        ST->ConOut->ClearScreen(ST->ConOut);
+        ST->ConOut->SetCursorPosition(ST->ConOut,1,1);
+        ST->ConOut->OutputString(ST->ConOut,"Select Kernel");
+        ST->ConOut->SetCursorPosition(ST->ConOut,4,1);
+        index page = BOOT_OPT_SELECTED/OPTIONS_PER_PAGE;
+        index Selected_index = BOOT_OPT_SELECTED % OPTIONS_PER_PAGE;
+
+        struct s_bootopt* inital_option = root_opt;
+        for(index i = 0; i < page; i++) {
+                for(index j = 0; j < OPTIONS_PER_PAGE; j++) {
+                        inital_option = inital_option->next;
+                }
+        }
+
+
+        struct s_bootopt* curr_opt = inital_option;
+        for(index i = 0; i < OPTIONS_PER_PAGE; i++) {
+                if(i == Selected_index) {
+                        ST->ConOut->OutputString(ST->ConOut,u" >>> ");
+                }
+                ST->ConOut->OutputString(ST->ConOut,curr_opt->kernal_name);
+                curr_opt = curr_opt->next;
+        }
+
+
+}
+
+void Menu() {
+        UINTN conin_idx;
+        EFI_INPUT_KEY key;
+        while(1) {
+                ST->BootServices->WaitForEvent(1,&ST->ConIn->WaitForKey,&conin_idx);
+                ST->ConIn->ReadKeyStroke(ST->ConIn,&key);
+                UpdateMenu();
+                if(key.UnicodeChar == u'\n') { BootSelected();}
+                switch(key.ScanCode) 
+                {
+                        case SCAN_UP:
+                                BOOT_OPT_SELECTED--;
+                                if(BOOT_OPT_SELECTED <= 0) { BOOT_OPT_SELECTED = BOOT_OPT_COUNT-1;}
+                                break;
+                        case SCAN_DOWN:
+                                BOOT_OPT_SELECTED++;
+                                if(BOOT_OPT_SELECTED >= BOOT_OPT_COUNT) {
+                                        BOOT_OPT_SELECTED = 0;
+                                }
+                                break;
+                }
+        
+        }
+}
+
+
+
+void OpenGsdbDirectory() {
+        EFI_STATUS s = Fopen(rootdir,u"gsdb",EFI_FILE_MODE_READ,EFI_FILE_DIRECTORY,&gsdbdir);
+        if(EFI_ERROR(s)) {
+                panic(s,u"Failed to open gsdb Directory");
+        }
+
+}
+
+void LoadBootOptions() {
+
+}
+
+
+
 EFI_STATUS efi_main(EFI_HANDLE imghandle,EFI_SYSTEM_TABLE* tab) {
         ST = tab;
         IMGH = imghandle;
+        BOOT_OPT_COUNT  = 0;
+        BOOT_OPT_SELECTED = 0;
+        root_opt = NULL;
+        KCR3 = NULL;
+        GSD_BOOT_TABLE = NULL;
+        GSD_PAGES = NULL;
+        efimmap.BASE = NULL;
+        efimmap.MAPSZ = 0;
         InitGsdPages();
         InitPageTable();
         GetImage();
         GetVol();
         InitBootTable();
         MarkLoader();
+        OpenGsdbDirectory();
+        LoadBootOptions();
         Menu();
 
         return EFI_ABORTED;

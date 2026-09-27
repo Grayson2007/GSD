@@ -11,9 +11,10 @@ Planned to Contain:
 - alloc/sba.c -> Slab Buddy Allocator (Custom Algorithm by Grayson)
 - alloc/bump.c -> Bump Allocator 
 - intrf.c -> Interface Routines 
-- thread.c -> Thread Routines 
-- time.c -> Time Routines
 - floatmath.c -> IEE 754 Math 
+- arrlist.c -> Array List 
+- rbtree.c -> Red Black Tree Implimentation
+  
 
 ## Planned Headers 
 

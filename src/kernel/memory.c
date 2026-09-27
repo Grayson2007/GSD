@@ -1,8 +1,8 @@
 #include "gsd-memory.h"
 #include "impl/x86_64/vmmap.h"
-static gsdpage* freelist[GSD_MEM_ORDER];
-static gsdpage* mem_map = (gsdpage*)(MEM_MAP_ADDRESS);
-
+static gsdpage* freelist[GSD_MEM_ORDER+1];
+static  gsdpage* mem_map = (gsdpage*)(MEM_MAP_ADDRESS);
+static size syspagec;
 void GsdQueryPageInfo(gsdpage** freelistptr,int* max_order) {
         *freelistptr = &freelist;
         *max_order = GSD_MEM_ORDER;
@@ -11,75 +11,181 @@ void GsdQueryPageInfo(gsdpage** freelistptr,int* max_order) {
 
 
 
+static void Freelist_Push(int lvl,gsdpage* pg) {
+        if(freelist[lvl]) {
+                freelist[lvl]->prevfree = pg;
+        }
+        pg->prevfree = NULL;
+        freelist[lvl] = pg;
+}
+
+static status Freelist_Pop(int lvl,gsdpage** outpg) {
+        if(!freelist[lvl]) { return gsd_not_present;}
+        *outpg = freelist[lvl];
+        if(freelist[lvl]->nextfree) {
+                freelist[lvl] = freelist[lvl]->nextfree;
+                freelist[lvl]->prevfree = NULL;
+        }
+        else { freelist[lvl] = NULL;}
+        return gsd_ok;
+}
+
+static void SplitPage(gsdpage* pg) {
+        if(freelist[pg->order] == pg) {
+                freelist[pg->order] = pg->nextfree;
+        }
+        if(pg->nextfree) {
+                pg->nextfree->prevfree = pg->prevfree;
+        }
+        pg->order--;
+        if(pg->prevfree) {
+                pg->prevfree->nextfree = pg->nextfree;
+        }
+        pg->nextfree =NULL;
+        pg->prevfree = NULL;
+        index pgi = pg-mem_map;
+        index buddyidx = (pgi) ^ (1 << pg->order);
+        mem_map[buddyidx].order = pg->order;
+        Freelist_Push(pg->order,&mem_map[buddyidx]);
+}
+
+
+static void CombinePage(gsdpage* pg,gsdpage** outpg) {
+        index pgi = pg-mem_map;
+        while(pg->order < GSD_MEM_ORDER)
+        {
+                index buddyidx = pgi ^ ((uptr)1 << pg->order);
+                if(buddyidx >= syspagec) { break;} // 
+                if(mem_map[buddyidx].attrib & gsdpg_active) { break;}
+
+                // Update freelist 
+                if(mem_map[buddyidx].prevfree) {
+                        mem_map[buddyidx].prevfree->nextfree = mem_map[buddyidx].nextfree;
+                }
+                if(mem_map[buddyidx].nextfree) {
+                        mem_map[buddyidx].nextfree->prevfree = mem_map[buddyidx].prevfree;
+                }
+                if(freelist[pg->order] == &mem_map[buddyidx]) {
+                        freelist[pg->order] = mem_map[buddyidx].nextfree;
+                }
+
+                // If the buddy is before this page we will set our current to the buddy as we're getting absorbed 
+                if(buddyidx < pgi) {
+                        pg->order = 0;
+                        pgi = buddyidx;
+                        pg = &mem_map[pgi];
+                }
+                pg->order++;
+
+        }
+        *outpg = pg; // Page may change so update 
+}
+
 status GsdAllocatePage(int attrib,int order,gsdpage** outpage) {
         int curr_order = order;
         int capabilitys = attrib & gsdpg_capability_mask;
-        if(curr_order >= GSD_MEM_ORDER) {return alloc_pages_no_mem;}
-        while(!freelist[curr_order]) {
-                curr_order++;
-                if(curr_order >= GSD_MEM_ORDER) { return alloc_pages_no_mem;}
+        while(!freelist[curr_order]) { // Find the first free page with order >= to the requested order 
+                order++;
+                if(order > GSD_MEM_ORDER) { return gsd_not_present;}
         }
-
-        gsdpage* currpg = freelist[curr_order];
-        // iterate through the freelists until we find a page of greater or equal order that satisfys our needed capabilities 
-        while(currpg->attrib & gsdpg_capability_mask != capabilitys) {
-                if(currpg->nextfree) 
-                { 
-                        currpg = currpg->nextfree; 
-                        continue;
-                } 
-                curr_order++;
-                if(curr_order >= GSD_MEM_ORDER) { return alloc_pages_no_mem;} // Max level then no memory is avalible 
-        }
-        index selfidx = currpg-mem_map;
-        
-        while(currpg->order > order) 
+        gsdpage* curr = freelist[curr_order];
+                
+        while(curr) // Locate a page in this order or Orders above that satisfy the required capabilities
         {
-                // Split the page until we reach the target ordfer 
-                currpg->order--;
-                index buddyidx = (selfidx ^ ((index)1 << currpg->order));
-                gsdpage* buddypg = &mem_map[buddyidx];
-                if(freelist[currpg->order]) {
-                        freelist[currpg->order]->prevfree = buddypg;
+                if((curr->attrib & gsdpg_capability_mask) & capabilitys == capabilitys) {
+                        break; // We found our Page! 
                 }
-                buddypg->prevfree = 0;
-                buddypg->nextfree = freelist[currpg->order];
-                freelist[currpg->order] = buddypg;
-                buddypg->order = currpg->order;
-        } 
 
-        currpg->attrib |= gsdpg_active | attrib;
-        *outpage = currpg;
+
+                if(!curr->nextfree) 
+                { 
+                        curr_order++; 
+                        if(curr_order > GSD_MEM_ORDER) { return gsd_not_present; /* no mem :(*/}
+                        curr = freelist[curr_order];
+                        continue;
+                }
+
+                curr = curr->nextfree;
+        }
+
+        while(curr_order > order) { // Split the page and mark as used 
+                SplitPage(curr);
+                curr_order--;
+        }
+        
+        curr->attrib |= gsdpg_active;
+        *outpage = curr;
+        curr->owning_process = gsd_pself();
         return gsd_ok;
 }
 
 
 status GsdFreePage(gsdpage* page) {
-        if(!page->attrib & gsdpg_active) { return gsd_ok;} // page is free do nothing 
-        index i = page-mem_map;
-        while(page->order < GSD_MEM_ORDER) {
-                index buddyidx = (i ^ ((index)1 << page->order));
-                gsdpage* buddy = &mem_map[buddyidx];
-                if(buddy->attrib & gsdpg_active) { 
-                        break;
-                }       
-                if(buddyidx < i) {
-                        page->order = 0;
-                        page = buddy;
-                        page->order++;
-                        continue;
-                }
-                else 
-                {
-                        buddy->order = 0;
-                        page->order++;
-                        continue;
-                }
-        }
+        page->attrib &= ~(gsdpg_active);
+        page->owning_process = 0;
+        CombinePage(page,&page);
         if(freelist[page->order]) {
                 freelist[page->order]->prevfree = page;
         }
-        page->prevfree = NULL;
         freelist[page->order] = page;
         return gsd_ok;
 }
+
+
+
+
+
+status GsdMemoryInit(size _Syspgc) 
+{
+        syspagec = _Syspgc;
+        index max_order_block_pages = ((index)1 << GSD_MEM_ORDER);
+        index max_order_blkc = syspagec >> GSD_MEM_ORDER;
+        gsdpage* pg = &mem_map[0];
+        bool block_free = true;
+        for(index i = 0; i < max_order_blkc; i++)
+        {
+                block_free = true;
+                // test 
+                for(index p = 1; p < max_order_block_pages; p++)
+                {
+                        if(block_free) // scan the memory block for used pages
+                        {
+                                if(pg[p].attrib & gsdpg_active) {  // if a used page is found break 
+                                        block_free = false;
+                                        break;
+                                }
+                               
+                        }         
+                        
+                }
+                if(block_free) // No used page add this block to the freelist
+                {
+                        if(freelist[GSD_MEM_ORDER]) {
+                                freelist[GSD_MEM_ORDER]->prevfree = pg;
+                        }
+                        pg->nextfree = freelist[GSD_MEM_ORDER];
+                        freelist[GSD_MEM_ORDER] = pg;
+                        pg += max_order_block_pages;
+                        continue;
+                }
+                else 
+                {       
+                        // Otherwise we're going to add each free page in the memory block to the single page freelist 
+                        for(index p = 0; p < max_order_block_pages; p++) {
+                                if(pg[p].attrib & gsdpg_active) { 
+                                        continue;
+                                }
+                                if(freelist[0]) {
+                                        freelist[0]->prevfree = &pg[p];
+                                }
+                                pg[p].nextfree = freelist[0];
+                                pg[p].prevfree = NULL;
+                                freelist[0] = &pg[p];
+                        }    
+                        pg += max_order_block_pages;       
+                }
+        }
+        return gsd_ok;
+}
+
+

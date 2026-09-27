@@ -4,3 +4,6 @@
 [submodule "deps/common/efi-headers"]
 	path = deps/common/efi-headers
 	url = https://github.com/kiznit/uefi-headers.git
+[submodule "deps/common/scalable-font2"]
+	path = deps/common/scalable-font2
+	url = https://gitlab.com/bztsrc/scalable-font2.git

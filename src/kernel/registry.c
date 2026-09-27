@@ -4,9 +4,17 @@
 
 
 
-void GsdInsertKey();
+void GsdInsertKey()
+{
 
-void GsdDeleteKey();
+}
 
-void GsdFindKey();
+void GsdDeleteKey()
+{
 
+}
+
+void GsdFindKey()
+{
+
+}
