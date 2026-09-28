@@ -94,6 +94,7 @@ void Clean() {
                 struct s_bootopt* next_opt;
                 while(curr_opt) {
                         next_opt = curr_opt->next;
+                        ST->BootServices->FreePool(curr_opt->kernal_name);
                         ST->BootServices->FreePool(curr_opt);
                         curr_opt = next_opt;
                 }
@@ -101,6 +102,15 @@ void Clean() {
 
 }
 
+
+NORETURN void stall_panic(CHAR16* msg) {
+        ST->ConOut->ClearScreen(ST->ConOut);
+        ST->ConOut->SetCursorPosition(ST->ConOut,0,0);
+        ST->ConOut->OutputString(ST->ConOut,msg);
+        ST->ConOut->SetCursorPosition(ST->ConOut,0,1);
+        ST->ConOut->OutputString(ST->ConOut,u"Your system has now stalled. Please do a manual reboot");
+        for(;;);
+}
 NORETURN void panic(EFI_STATUS code,CHAR16* msg) {
         ST->ConOut->ClearScreen(ST->ConOut);
         ST->ConOut->SetCursorPosition(ST->ConOut,0,0);
@@ -120,7 +130,7 @@ void* AllocatePool(size memsz) {
 void FreePool(void* ptr) {
         ST->BootServices->FreePool(ptr);
 }
-
+// Updates the memory map 
 void UpdateMemoryMap() {
         EFI_MEMORY_DESCRIPTOR* oldbase = efimmap.BASE;
         UINTN oldsize = efimmap.MAPSZ;
@@ -157,7 +167,7 @@ bool Memory_Is_Valid(UINT32 mt) {
 }
 
 // Sets up the kernels physical memory structures
-
+#define _SET_ATTRIB(EFIA,GSDA) attrib |= desc->Attribute & EFIA ? GSDA : 0
 void InitGsdPages() {
         efimmap.MAPSZ = 0;
         efimmap.BASE = NULL;
@@ -198,7 +208,14 @@ void InitGsdPages() {
         while(desc_ptr < endptr) {
                 EFI_MEMORY_DESCRIPTOR* desc = (EFI_MEMORY_DESCRIPTOR*)desc_ptr;
                 index base_idx = ((index)desc->PhysicalStart) >> 12;
-                int attrib = Memory_Is_Valid(desc->Type) ? gsdpg_valid : 0;
+                int attrib = Memory_Is_Valid(desc->Type) ? gsdpg_valid | gsdpg_dma_capable : 0;
+                _SET_ATTRIB(EFI_MEMORY_XP,gsdpg_xp);
+                _SET_ATTRIB(EFI_MEMORY_RP,gsdpg_rp);
+                _SET_ATTRIB(EFI_MEMORY_WP,gsdpg_wp);
+                _SET_ATTRIB(EFI_MEMORY_WB,gsdpg_wb);
+                _SET_ATTRIB(EFI_MEMORY_WT,gsdpg_wt);
+                _SET_ATTRIB(EFI_MEMORY_WC,gsdpg_wc);
+                _SET_ATTRIB(EFI_MEMORY_UC,gsdpg_uc);
                 for(index i = base_idx; i < base_idx+desc->NumberOfPages; i++)
                 {
                         GSD_PAGES[i].addr = (uintptr_t)(i << 12);
@@ -214,7 +231,7 @@ void InitGsdPages() {
         // Allocate the pages that the gsd_page structures take up 
         index page_map_base = (index)GSD_PAGES >> 12;
         for(index i = page_map_base; i < gsd_page_pages_needed; i++) {
-                GSD_PAGES[i].attrib = gsdpg_valid | gsdpg_active | gsdpg_page_structure;
+                GSD_PAGES[i].attrib |= gsdpg_valid | gsdpg_active | gsdpg_page_structure;
                 GSD_PAGES[i].order = 0;
                 GSD_PAGES[i].owning_process = 0;
                 GSD_PAGES[i].prevfree = NULL;
@@ -225,7 +242,7 @@ void InitGsdPages() {
 EFI_PHYSICAL_ADDRESS allocate_new_page_table() {
         EFI_PHYSICAL_ADDRESS out;
         EFI_STATUS s = ST->BootServices->AllocatePages(AllocateAnyPages,EfiLoaderData,1,&out);
-        if(EFI_ERROR(s)) { panic(s,"PANIC: Page table allocation failed"); }
+        if(EFI_ERROR(s)) { stall_panic(u"PANIC: Page table allocation failed"); }
         index addridx = (out >> 12);
         GSD_PAGES[addridx].attrib |= gsdpg_active | gsdpg_pgtable;
         return out;
@@ -296,15 +313,9 @@ void GetVol() {
         iovol->OpenVolume(iovol,&rootdir);
 }
 
-void LoadKernel(Elf64_Ehdr* elf)
-{
-        
-}
 
-void LoadIniramfs() {
 
-}
-
+// Exit Boot services and make the jump to the early stage of the kernel
 NORETURN void Boot(uintptr_t RIP) {
         ST->BootServices->ExitBootServices(IMGH,efimmap.KEY);
         ktramp(KCR3,RIP);
@@ -318,7 +329,46 @@ void GetImage() {
 }
 
 void SetupGop() {
-        
+        EFI_GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
+        EFI_GRAPHICS_OUTPUT_PROTOCOL* gop;
+        EFI_STATUS s = ST->BootServices->LocateProtocol(&gop_guid,NULL,(void**)&gop);
+        if(EFI_ERROR(s)) {
+                panic(s,u"PANIC: Unable to locate GOP");
+        }
+        UINTN modeinf_size;
+        EFI_GRAPHICS_OUTPUT_MODE_INFORMATION* inf;
+        s = gop->QueryMode(gop,gop->Mode == NULL ? 0 : gop->Mode->Mode,&modeinf_size,&inf);
+        if(s == EFI_NOT_STARTED) {
+                s = gop->SetMode(gop,0);
+        }
+        if(EFI_ERROR(s)) {
+                panic(s,u"PANIC: Gop init failed");
+        }
+        UINTN num_modes = gop->Mode->MaxMode;
+        UINTN native_mode = gop->Mode->Mode;
+
+        UINTN best_dims = 0;
+        UINTN best_mode = 0;
+        for(UINT32 i = 0; i < num_modes; i++)
+        {
+                gop->QueryMode(gop,i,&modeinf_size,&inf);
+                if(inf->PixelFormat != PixelRedGreenBlueReserved8BitPerColor) { continue;}
+                if(inf->HorizontalResolution*inf->VerticalResolution > best_dims) {
+                        best_mode = i;
+                }
+        }
+        gop->SetMode(gop,best_mode);
+        GSD_BOOT_TABLE->fb.depth = 32;
+        GSD_BOOT_TABLE->fb.pbase = gop->Mode->FrameBufferBase;
+        GSD_BOOT_TABLE->fb.fbsz = gop->Mode->FrameBufferSize;
+        GSD_BOOT_TABLE->fb.w = gop->Mode->Info->HorizontalResolution;
+        GSD_BOOT_TABLE->fb.h = gop->Mode->Info->VerticalResolution;
+        GSD_BOOT_TABLE->fb.rmask = gop->Mode->Info->PixelInformation.RedMask;
+        GSD_BOOT_TABLE->fb.bmask = gop->Mode->Info->PixelInformation.BlueMask;
+        GSD_BOOT_TABLE->fb.gmask = gop->Mode->Info->PixelInformation.GreenMask;
+        GSD_BOOT_TABLE->fb.ppsl = gop->Mode->Info->PixelsPerScanLine;
+        GSD_BOOT_TABLE->fb.pitch = 4*gop->Mode->Info->PixelsPerScanLine;
+
 }
 
 void InitPageTable() {
@@ -346,19 +396,74 @@ void MarkLoader() {
         } 
 }
 
+static void Load_Kernel(Elf64_Ehdr* ehdr) {
+        void* baseptr = (void*)ehdr;
+        u32* magicptr = (u32*)ehdr;
+        if(*magicptr != '\x7FELF') { panic(EFI_INVALID_PARAMETER,u"PANIC: Kernel is not an elf");}
+        if(ehdr->e_machine != EM_X86_64) { panic(EFI_INVALID_PARAMETER,u"PANIC: Kernel is not for x86_64");}
+        
+        size phcount = ehdr->e_phnum;
+        size phsz = ehdr->e_phentsize;
+
+        Elf64_Phdr* phdrs = (Elf64_Phdr*)(baseptr+ehdr->e_phoff);
+        void* cptr = (void*)phdrs;
+        for(index i = 0; i < phcount; i++) {
+                Elf64_Phdr* phdr = (Elf64_Phdr*)cptr;
+                if(phdr->p_type == PT_LOAD)
+                {
+                        size memsz = phdr->p_memsz;
+                        void* copy_base = (void*)(baseptr+phdr->p_offset);
+                        size copysz = phdr->p_filesz;
+                        size pagec = (memsz >> 12) + (memsz & 0xFFF) ? 1 : 0;
+                        EFI_PHYSICAL_ADDRESS pbase;
+                        EFI_STATUS s = ST->BootServices->AllocatePages(AllocateAnyPages,EfiLoaderData,pagec,&pbase);
+                        if(EFI_ERROR(s)) {
+                                stall_panic(u"Unable to allocate Memory for Kernel Binary");
+                        }
+                        ST->BootServices->CopyMem((void*)pbase,copy_base,copysz);
+                        size zero_count = memsz-copysz;
+                        ST->BootServices->SetMem((void*)pbase+copysz,zero_count,0);
+                        // Map the kernel
+                        EFI_VIRTUAL_ADDRESS vbase = (EFI_VIRTUAL_ADDRESS)phdr->p_vaddr;
+                        for(index p = 0; p < pagec; p++) {
+                                EfiMarkPage(vbase,pbase);
+                                vbase += EFI_PAGE_SIZE;
+                                pbase += EFI_PAGE_SIZE;
+                        }
+                }
+        }
+}
+
 NORETURN void BootSelected() {
-        SetupGop();
         EFI_FILE_HANDLE kernelbin;
         EFI_FILE_HANDLE irfsbin;
-        optdir->Open(optdir,&kernelbin,u"kernel.elf",EFI_FILE_MODE_READ,EFI_FILE_HIDDEN | EFI_FILE_ARCHIVE);
+
+        // Load the Kernel 
+        optdir->Open(optdir,&kernelbin,u"kernel.elf",EFI_FILE_MODE_READ,EFI_FILE_HIDDEN | EFI_FILE_SYSTEM);
         EFI_FILE_INFO* kernelbin_info = Finfo(kernelbin);
         size kernsz = kernelbin_info->FileSize;
         ST->BootServices->FreePool(kernelbin_info);
-        LoadKernel();
-        LoadIniramfs();
-        UpdateMemoryMap();
-        Boot();
+        size kernbinpgc = (kernsz >> 12) + (kernsz & 0xFFF) ? 1 : 0;
+        Elf64_Ehdr* kbuff;
+        ST->BootServices->AllocatePages(AllocateAnyPages,EfiLoaderData,kernbinpgc,(EFI_PHYSICAL_ADDRESS*)&kbuff);
+        kernelbin->Read(kernelbin,&kernsz,kbuff);
+        uintptr_t entry = kbuff->e_entry;
+        Load_Kernel((Elf64_Ehdr*)kbuff);
+        ST->BootServices->FreePages(kbuff,kernbinpgc);
+        kernelbin->Close(kernelbin);
 
+
+        // Load the Initramfs Image 
+        optdir->Open(optdir,&irfsbin,u"irfs.img",EFI_FILE_MODE_READ,EFI_FILE_HIDDEN | EFI_FILE_SYSTEM);
+        EFI_FILE_INFO* irfsinf = Finfo(irfsbin);
+
+
+        // Finalise EFI Stage  by setting up GOP and getting the final Memory Map 
+        SetupGop();
+        UpdateMemoryMap();
+        GSD_BOOT_TABLE->mmap.efi = efimmap.BASE;
+        GSD_BOOT_TABLE->mmapdescriptorc = efimmap.MAPSZ/efimmap.DESC_SZ;
+        Boot(entry);
 }
 
 
@@ -382,12 +487,11 @@ void UpdateMenu() {
         for(index i = 0; i < OPTIONS_PER_PAGE; i++) {
                 if(i == Selected_index) {
                         ST->ConOut->OutputString(ST->ConOut,u" >>> ");
+                        selected_opt = curr_opt;
                 }
                 ST->ConOut->OutputString(ST->ConOut,curr_opt->kernal_name);
                 curr_opt = curr_opt->next;
         }
-
-
 }
 
 void Menu() {
@@ -426,10 +530,66 @@ void OpenGsdbDirectory() {
 }
 
 void LoadBootOptions() {
+        size buffsz = sizeof(EFI_FILE_INFO)+512;
+        EFI_FILE_INFO* inf = AllocatePool(buffsz);
+        EFI_STATUS s;
+        root_opt = AllocatePool(sizeof(struct s_bootopt));
+        struct s_bootopt* last_opt = NULL;
+        struct s_bootopt* curropt = root_opt;
+        BOOT_OPT_COUNT = 1;
+        while(1) {
+                s = gsdbdir->Read(gsdbdir,&buffsz,inf);
+                if(EFI_ERROR(s) || buffsz == 0) {
+                        break;
+                }
 
+                if(inf->Attribute & EFI_FILE_DIRECTORY)
+                {
+                        if(inf->FileName[0] == '.') { continue;}
+                        size namesz = _STRLEN(&inf->FileName);
+                        curropt->kernal_name = AllocatePool(sizeof(CHAR16)*(namesz+1));
+                        ST->BootServices->CopyMem(curropt->kernal_name,&inf->FileName,(namesz+1)*sizeof(CHAR16));
+                        curropt->prev = last_opt;
+                        if(last_opt) { last_opt->next = curropt;}
+                        last_opt = curropt;
+                }
+
+        }
+        FreePool(inf);
 }
 
 
+
+int GUID_EQU(EFI_GUID* a,EFI_GUID* b) {
+        if(a->Data1 != b->Data1) { return 0;}
+        if(a->Data2 != b->Data2) { return 0;}
+        if(a->Data3 != b->Data3) { return 0;}
+        for(int i = 0; i < 8; i++) {
+                if(a->Data4[i] != b->Data4[i]) { return 0;}
+        }
+        return 1;
+}
+
+#define ACPI_TABLE_GUID { 0xeb9d2d30, 0x2d88, 0x11d3, { 0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d } };
+#define ACPI_20_TABLE_GUID { 0x8868e871, 0xe4f1, 0x11d3, { 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 } };
+
+void FindRSDP() {
+        EFI_GUID rsdp_20_id = ACPI_20_TABLE_GUID;
+        for(index i = 0; i < ST->NumberOfTableEntries; i++) {
+                if(GUID_EQU(&ST->ConfigurationTable[i].VendorGuid,&rsdp_20_id)) { 
+                        GSD_BOOT_TABLE->rsdp = ST->ConfigurationTable[i].VendorTable;
+                        return;
+                }
+        }
+        EFI_GUID rsdp_id = ACPI_TABLE_GUID;
+        for(index i = 0; i < ST->NumberOfTableEntries; i++) {
+                if(GUID_EQU(&ST->ConfigurationTable[i].VendorGuid,&rsdp_id)) { 
+                        GSD_BOOT_TABLE->rsdp = ST->ConfigurationTable[i].VendorTable;
+                        return;
+                }
+        }
+        GSD_BOOT_TABLE->rsdp = NULL;
+}
 
 EFI_STATUS efi_main(EFI_HANDLE imghandle,EFI_SYSTEM_TABLE* tab) {
         ST = tab;
@@ -447,10 +607,10 @@ EFI_STATUS efi_main(EFI_HANDLE imghandle,EFI_SYSTEM_TABLE* tab) {
         GetImage();
         GetVol();
         InitBootTable();
+        FindRSDP();
         MarkLoader();
         OpenGsdbDirectory();
         LoadBootOptions();
         Menu();
-
         return EFI_ABORTED;
 }

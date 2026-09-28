@@ -2,7 +2,7 @@
 #define gsd_memory_h
 #include "gsd-common.h"
 
-#define gsdpg_capability_mask ~((1 << 5)-1)
+#define gsdpg_capability_mask ~((1 << 10)-1)
 enum gsdpage_attrib {
         gsdpg_valid = 1,
         gsdpg_active = (1 << 1),
@@ -12,7 +12,10 @@ enum gsdpage_attrib {
         gsdpg_kernel = (1 << 5),
         gsdpg_pgtable = (1 << 6),
         gsdpg_page_structure = (1 << 7),
-        gsdpg_firmware_memmap = (1 << 8)
+        gsdpg_firmware_memmap = (1 << 8),
+        gsdpg_dma_capable = (1 << 9)
+
+
         
 };
 

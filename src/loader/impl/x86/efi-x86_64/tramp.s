@@ -17,7 +17,7 @@ ktramp:
         push rax
         lea rax,[rel reload_cs]
         push rax
-        lretq
+        retfq
 reload_cs:
         mov ax,0x10
         mov ds,ax
