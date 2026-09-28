@@ -456,7 +456,6 @@ NORETURN void BootSelected() {
         // Load the Initramfs Image 
         optdir->Open(optdir,&irfsbin,u"irfs.img",EFI_FILE_MODE_READ,EFI_FILE_HIDDEN | EFI_FILE_SYSTEM);
         EFI_FILE_INFO* irfsinf = Finfo(irfsbin);
-        size irfssz - irfsbin.
 
 
         // Finalise EFI Stage  by setting up GOP and getting the final Memory Map 

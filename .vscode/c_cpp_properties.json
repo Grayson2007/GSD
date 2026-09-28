@@ -3,18 +3,16 @@
         {
             "name": "Linux",
             "includePath": [
-                "${default}/,",
-                "${WorkspaceFolder}/**",
+                "${default}",
                 "${workspaceFolder}/deps/common",
-                "${workspaceFolder}/deps/common/efi-headers/Include",
-                "${workspaceFolder}/deps/common/efi-headers/Include/X64",
                 "${workspaceFolder}/src/inc/gsd",
-                "${workspaceFolder}/src/inc"
+                "${workspaceFolder}/src/inc",
+                "${workspaceFolder}/deps/common/efi-headers/Include"
             ],
             "defines": [],
-            "compilerPath": "/usr/bin/gcc",
-            "cStandard": "c17",
-            "cppStandard": "c++17",
+            "compilerPath": "/usr/bin/clang",
+            "cStandard": "gnu17",
+            "cppStandard": "gnu++17",
             "intelliSenseMode": "linux-clang-x64"
         }
     ],
