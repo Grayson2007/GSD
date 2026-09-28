@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${default}/,",
+                "${WorkspaceFolder}/**",
+                "${workspaceFolder}/deps/common",
+                "${workspaceFolder}/deps/common/efi-headers/Include",
+                "${workspaceFolder}/deps/common/efi-headers/Include/X64",
+                "${workspaceFolder}/src/inc/gsd",
+                "${workspaceFolder}/src/inc"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-clang-x64"
+        }
+    ],
+    "version": 4
+}
