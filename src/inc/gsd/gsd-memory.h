@@ -19,6 +19,12 @@ enum gsdpage_attrib {
         
 };
 
+
+typedef struct s_vmm_memrange {
+        uintptr_t min;
+        uintptr_t max;
+} vmm_memrange;
+
 typedef struct s_gsdpage {
         uintptr_t addr;
         gsd_procid owning_process;
@@ -61,6 +67,9 @@ void GsdFreePage(gsdpage* page);
 
 
 void GsdQueryPageInfo(gsdpage** freelistptr,int* max_order);
+
+
+
 
 
 

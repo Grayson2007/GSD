@@ -55,6 +55,11 @@ typedef struct
                 u32 bmask;
 
         } fb;
+        struct {
+                uintptr_t pbase;
+                size sz;
+                size pagec;
+        } irfs;
         uintptr_t gsdpage_base;
         size syspagec;
 

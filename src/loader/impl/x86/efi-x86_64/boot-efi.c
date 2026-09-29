@@ -99,7 +99,15 @@ void Clean() {
                         curr_opt = next_opt;
                 }
         }
-
+        if(optdir) {
+                optdir->Close(optdir);
+        }
+        if(gsdbdir) {
+                gsdbdir->Close(gsdbdir);
+        }
+        if(rootdir) {
+                rootdir->Close(rootdir);
+        }
 }
 
 
@@ -437,16 +445,27 @@ static void Load_Kernel(Elf64_Ehdr* ehdr) {
 NORETURN void BootSelected() {
         EFI_FILE_HANDLE kernelbin;
         EFI_FILE_HANDLE irfsbin;
+        EFI_STATUS s;
 
         // Load the Kernel 
-        optdir->Open(optdir,&kernelbin,u"kernel.elf",EFI_FILE_MODE_READ,EFI_FILE_HIDDEN | EFI_FILE_SYSTEM);
+        s = optdir->Open(optdir,&kernelbin,u"kernel.elf",EFI_FILE_MODE_READ,EFI_FILE_HIDDEN | EFI_FILE_SYSTEM);
+        if(EFI_ERROR(s)) {  panic(s,u"PANIC: Unable to Load kernel Binary"); }
         EFI_FILE_INFO* kernelbin_info = Finfo(kernelbin);
         size kernsz = kernelbin_info->FileSize;
         ST->BootServices->FreePool(kernelbin_info);
         size kernbinpgc = (kernsz >> 12) + (kernsz & 0xFFF) ? 1 : 0;
         Elf64_Ehdr* kbuff;
-        ST->BootServices->AllocatePages(AllocateAnyPages,EfiLoaderData,kernbinpgc,(EFI_PHYSICAL_ADDRESS*)&kbuff);
-        kernelbin->Read(kernelbin,&kernsz,kbuff);
+        s = ST->BootServices->AllocatePages(AllocateAnyPages,EfiLoaderData,kernbinpgc,(EFI_PHYSICAL_ADDRESS*)&kbuff);
+        if(EFI_ERROR(s)) {
+                kernelbin->Close(kernelbin);
+                panic(s,u"PANIC: Kernel Bin Page allocation failed");
+        }
+        s = kernelbin->Read(kernelbin,&kernsz,kbuff);
+        if(EFI_ERROR(s)) {
+
+                kernelbin->Close(kernelbin);
+                panic(s,u"PANIC: Kernel bin reading failed");
+        }
         uintptr_t entry = kbuff->e_entry;
         Load_Kernel((Elf64_Ehdr*)kbuff);
         ST->BootServices->FreePages(kbuff,kernbinpgc);
@@ -454,10 +473,17 @@ NORETURN void BootSelected() {
 
 
         // Load the Initramfs Image 
-        optdir->Open(optdir,&irfsbin,u"irfs.img",EFI_FILE_MODE_READ,EFI_FILE_HIDDEN | EFI_FILE_SYSTEM);
+        s = optdir->Open(optdir,&irfsbin,u"irfs.img",EFI_FILE_MODE_READ,EFI_FILE_HIDDEN | EFI_FILE_SYSTEM);
+        if(EFI_ERROR(s)) {
+                stall_panic(u"PANIC: Unable to Open IRFS file");
+        }
         EFI_FILE_INFO* irfsinf = Finfo(irfsbin);
-
-
+        size irfspagec = (irfsinf->FileSize >> 12) + irfsinf->FileSize & 0xFFF ? 1 : 0;
+        EFI_PHYSICAL_ADDRESS irfsaddr;
+        s = ST->BootServices->AllocatePages(AllocateAnyPages,EfiLoaderData,irfspagec,&irfsaddr);
+        if(EFI_ERROR(s)) {
+                stall_panic(u"PANIC: Unable to allocate IRFS memory");
+        }
         // Finalise EFI Stage  by setting up GOP and getting the final Memory Map 
         SetupGop();
         UpdateMemoryMap();
@@ -602,6 +628,9 @@ EFI_STATUS efi_main(EFI_HANDLE imghandle,EFI_SYSTEM_TABLE* tab) {
         GSD_PAGES = NULL;
         efimmap.BASE = NULL;
         efimmap.MAPSZ = 0;
+        rootdir = NULL;
+        gsdbdir = NULL;
+        optdir = NULL;
         InitGsdPages();
         InitPageTable();
         GetImage();

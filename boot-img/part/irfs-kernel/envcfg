@@ -1,0 +1,45 @@
+{
+        "load" : {
+                "modules" : [
+                        "ata.km",
+                        "nvme.km",
+                        "eltor.km",
+                        "sata.km",
+                        "lfd.km",
+                        "fs_iso9660.km",
+                        "fs_gsdfs.km",
+                        "fs_fat16.km",
+                        "fs_fat12.km",
+                        "gvm-cpu.km",
+                        "echi.km",
+                        "echi-hid.km",
+                        "echi-hdd.km",
+                        "ps2hid.km"
+                ],
+                "calls": [
+                        
+                ],
+                "keys" : [
+
+                ]
+        },
+
+        "disks" : {
+
+        },
+        "vols" : {
+
+                "root" : {
+                        
+                },
+                "data0": {
+
+                },
+                "fd00" : {
+
+                }
+        },
+        "regkeys" : {
+
+        }
+}
