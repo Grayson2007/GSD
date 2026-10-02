@@ -1,9 +1,9 @@
-[submodule "deps/x86_64/efi-headers"]
-	path = deps/x86_64/efi-headers
-	url = https://github.com/kiznit/uefi-headers.git
 [submodule "deps/common/efi-headers"]
 	path = deps/common/efi-headers
 	url = https://github.com/kiznit/uefi-headers.git
 [submodule "deps/common/scalable-font2"]
 	path = deps/common/scalable-font2
 	url = https://gitlab.com/bztsrc/scalable-font2.git
+[submodule "deps/common/rb_tree"]
+	path = deps/common/rb_tree
+	url = https://www.github.com/gfxstrand/rb-tree

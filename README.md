@@ -23,11 +23,14 @@ Some Features I'm planning to add to this kernel are
 - Memory Managment (Inspired by the Linux Kernel)
 
 
+
 ## Status So far 
 
-Currently I've been working on the UEFI Loader for the kernel and I'm first targeting x86_64 based machines. 
+This Project is in very early stages and currently is not runnable yet
+I will post a compilation guide once everything is tested and working
+So far Feel free to preview the source code as everything comes toghether 
 
 
-It also cannot be built or ran currently in a VM but that will change in the near future.
-Once I have something working I'll post instructions below on how to try my kernel yourself in a VM.
+---
+\- Grayson :\)
 
