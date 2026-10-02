@@ -42,7 +42,8 @@ enum gsd_stdstatus {
         gsd_invalid_param,
         gsd_not_present,
         gsd_already_present,
-        gsd_out_of_resources
+        gsd_out_of_resources,
+        gsd_busy
 };
 
 #define status_assert(sv,code) if(sv != code) 

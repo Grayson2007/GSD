@@ -1,6 +1,11 @@
 #ifndef dt_h
 #define dt_h
 #include <gsd-common.h>
+enum syst {
+        gdt_ldt,
+        gdt_tss_busy,
+        gdt_tss_avl
+};
 
 typedef struct {
         uintptr_t base;
@@ -12,7 +17,6 @@ typedef struct {
         bool writable;
         bool scale_4k;
 } GDT_ENTRY_INFO;
-
 
 void EncodeGdtEntry(GDT_ENTRY_INFO* info,u64* entryptr);
 
@@ -26,6 +30,11 @@ typedef struct {
 
 void EncodeTSS(TSS_INFO* info,void* base);
 
+
+enum gate_types {
+        idt_gt_trap,
+        idt_gt_int
+};
 typedef struct {
         uintptr_t addr;
         u16 segment;
@@ -35,6 +44,7 @@ typedef struct {
 } IDT_INFO;
 
 void EncodeIDT(IDT_INFO* info,u64* entryptr);
+
 
 
 #endif

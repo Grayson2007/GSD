@@ -8,7 +8,6 @@ void kinit() {
 
 }
 
-
 void detect_cpu_cores() { // Detect system cores 
 
 }

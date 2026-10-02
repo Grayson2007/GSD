@@ -34,7 +34,7 @@ global _sti
 
 global _wbinvd
 global _invlpg
-
+global gsd_try_aquire
 _cli:
         cli 
         ret
@@ -122,4 +122,30 @@ _wbinvd:
         ret
 _invlpg:
         invlpg [rdi]
+        ret
+; gsd_try_aquire(gsd_atomic* atomic)
+gsd_try_aquire:
+        mov eax,0
+        mov ecx,1
+        lock cmpxchg [rdi],ecx
+        jz .ok
+        mov eax,0
+        ret
+        .ok:
+                mov eax,1
+                ret
+gsd_release:
+        mov dword [rdi],0
+        ret
+
+
+global atomic_increment
+global atomic_decrement
+; void atomic_increment(gsd_atomic* value);
+atomic_increment:
+        lock inc dword [rdi]
+        ret
+;void atomic_decrement(gsd_atomic* value);
+atomic_decrement:
+        lock dec dword [rdi]
         ret

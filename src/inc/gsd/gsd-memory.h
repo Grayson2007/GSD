@@ -2,7 +2,9 @@
 #define gsd_memory_h
 #include "gsd-common.h"
 
+
 #define gsdpg_capability_mask ~((1 << 10)-1)
+
 enum gsdpage_attrib {
         gsdpg_valid = 1,
         gsdpg_active = (1 << 1),
@@ -19,11 +21,30 @@ enum gsdpage_attrib {
         
 };
 
+enum gsd_vmem_attributes {
+        vmem_read = (1 << 1),
+        vmem_write = (1 << 2),
+        vmem_execute = (1 << 3),
+        vmem_anonymous = (1 << 4),
+        vmem_share = (1 << 5),
+}; 
 
-typedef struct s_vmm_memrange {
-        uintptr_t min;
-        uintptr_t max;
-} vmm_memrange;
+
+typedef struct {
+
+} gsd_vmrange;
+
+
+
+// GSD's memtree is Inspired by the maple tree structure in the Linux kernel 
+#define MEMTREE_SLOTS 4
+
+typedef struct s_gsd_vmemtree {
+        struct s_gsd_vmemtree* parent;
+        uintptr_t ranges[MEMTREE_SLOTS*2];
+        void* slots[MEMTREE_SLOTS]; // e
+} gsd_vmemtree;
+
 
 typedef struct s_gsdpage {
         uintptr_t addr;
@@ -35,26 +56,11 @@ typedef struct s_gsdpage {
 } gsdpage;
 
 
-typedef struct s_memtree_entry 
-{
-
-        uintptr_t minptr;
-        uintptr_t maxptr;
-        uintptr_t priority;
-        gsdpage* page;
-        struct s_memtree_entry* low;
-        struct s_memtree_entry* high;
-        struct s_memtree_entry* parent;
-} memtree_entry;
 
 
-typedef struct s_memtree {
-        memtree_entry* root;
-} memtree;
 
-status memtree_insert(memtree* self,uintptr_t minptr,uintptr_t maxptr,gsdpage* page);
-status memtree_delete(memtree* self,uintptr_t ptr);
-status memtree_find(memtree* self,uintptr_t ptr,memtree_entry** outptr);
+
+
 
 enum gsd_allocate_pages_status {
         alloc_pages_no_mem = 1,
@@ -62,16 +68,19 @@ enum gsd_allocate_pages_status {
 };
 
 status GsdAllocatePage(int attrib,int order,gsdpage** outpage);
-void GsdFreePage(gsdpage* page); 
-
-
-
+status GsdFreePage(gsdpage* page);
+status KVaddrMap(gsdpage* pg,uintptr_t* out);
+status KVaddrFree(void* virt);
+status KVaddrToPage(void* virt,gsdpage** outpg);
+status KPageAlloc(size pagec,void* outbase);
+status KPageFree(void* base);
 void GsdQueryPageInfo(gsdpage** freelistptr,int* max_order);
+void GsdMapPages(gsdpage* pg);
 
 
 
 
 
 
-#define GSD_MEM_ORDER 12
+
 #endif

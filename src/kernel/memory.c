@@ -1,15 +1,14 @@
 #include "gsd-memory.h"
-#include "impl/x86_64/vmmap.h"
-static gsdpage* freelist[GSD_MEM_ORDER+1];
+
+
+
+static gsdpage* freelist[SYS_MEMORY_ORDER];
 static  gsdpage* mem_map = (gsdpage*)(MEM_MAP_ADDRESS);
 static size syspagec;
 void GsdQueryPageInfo(gsdpage** freelistptr,int* max_order) {
         *freelistptr = &freelist;
-        *max_order = GSD_MEM_ORDER;
+        *max_order = SYS_MEMORY_ORDER;
 }
-
-
-
 
 static void Freelist_Push(int lvl,gsdpage* pg) {
         if(freelist[lvl]) {
@@ -52,7 +51,7 @@ static void SplitPage(gsdpage* pg) {
 
 static void CombinePage(gsdpage* pg,gsdpage** outpg) {
         index pgi = pg-mem_map;
-        while(pg->order < GSD_MEM_ORDER)
+        while(pg->order < SYS_MEMORY_ORDER)
         {
                 index buddyidx = pgi ^ ((uptr)1 << pg->order);
                 if(buddyidx >= syspagec) { break;} // 
@@ -86,7 +85,7 @@ status GsdAllocatePage(int attrib,int order,gsdpage** outpage) {
         int capabilitys = attrib & gsdpg_capability_mask;
         while(!freelist[curr_order]) { // Find the first free page with order >= to the requested order 
                 order++;
-                if(order > GSD_MEM_ORDER) { return gsd_not_present;}
+                if(order > SYS_MEMORY_ORDER) { return gsd_not_present;}
         }
         gsdpage* curr = freelist[curr_order];
                 
@@ -100,7 +99,7 @@ status GsdAllocatePage(int attrib,int order,gsdpage** outpage) {
                 if(!curr->nextfree) 
                 { 
                         curr_order++; 
-                        if(curr_order > GSD_MEM_ORDER) { return gsd_not_present; /* no mem :(*/}
+                        if(curr_order > SYS_MEMORY_ORDER) { return gsd_not_present; /* no mem :(*/}
                         curr = freelist[curr_order];
                         continue;
                 }
@@ -138,8 +137,8 @@ status GsdFreePage(gsdpage* page) {
 status GsdMemoryInit(size _Syspgc) 
 {
         syspagec = _Syspgc;
-        index max_order_block_pages = ((index)1 << GSD_MEM_ORDER);
-        index max_order_blkc = syspagec >> GSD_MEM_ORDER;
+        index max_order_block_pages = ((index)1 << SYS_MEMORY_ORDER);
+        index max_order_blkc = syspagec >> SYS_MEMORY_ORDER;
         gsdpage* pg = &mem_map[0];
         bool block_free = true;
         for(index i = 0; i < max_order_blkc; i++)
@@ -160,11 +159,11 @@ status GsdMemoryInit(size _Syspgc)
                 }
                 if(block_free) // No used page add this block to the freelist
                 {
-                        if(freelist[GSD_MEM_ORDER]) {
-                                freelist[GSD_MEM_ORDER]->prevfree = pg;
+                        if(freelist[SYS_MEMORY_ORDER]) {
+                                freelist[SYS_MEMORY_ORDER]->prevfree = pg;
                         }
-                        pg->nextfree = freelist[GSD_MEM_ORDER];
-                        freelist[GSD_MEM_ORDER] = pg;
+                        pg->nextfree = freelist[SYS_MEMORY_ORDER];
+                        freelist[SYS_MEMORY_ORDER] = pg;
                         pg += max_order_block_pages;
                         continue;
                 }

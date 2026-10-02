@@ -21,6 +21,7 @@ void _wrmsr(u32 ecx,u64 val);
 void _wbinvd();
 void _cli();
 void _sti();
+void _invlpg(uintptr_t vaddr);
 
 
 #endif

@@ -251,10 +251,10 @@ NORETURN void _asm_onirq_246();
 NORETURN void _asm_onirq_247();
 NORETURN void _asm_onirq_248();
 NORETURN void _asm_onirq_249();
-NORETURN void _asm_onirq_250();
-NORETURN void _asm_onirq_251();
-NORETURN void _asm_onirq_252();
-NORETURN void _asm_onirq_253();
-NORETURN void _asm_onirq_254();
-NORETURN void _asm_onirq_255();
+NORETURN void _asm_on_terminate();
+
+NORETURN void _asm_on_terminate();
+
+
+
 #endif

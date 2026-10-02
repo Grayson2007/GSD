@@ -1,7 +1,12 @@
 section .text
 bits 64
+ 
 extern gsd_irq_c_handler 
-global _asm_ctxrstor
+extern gsd_next_process
+extern gsd_handle_termination
+extern gsd_handle_kerncall
+global _asm_goto_burst
+global _asm_on_burst_end
 %macro ctxsav 0
 push rbp
 push r15
@@ -43,7 +48,7 @@ pop rbp
 %endmacro
 
 %assign i 0
-%rep 256
+%rep 250
 global _asm_onirq_#i
 _asm_onirq_%+i:
         ctxsav 
@@ -52,8 +57,30 @@ _asm_onirq_%+i:
 %assign i i+1
 %endrep
 
-_asm_ctxrstor:
+
+
+
+; IRQ 251
+_asm_on_terminate:
+        jmp gsd_handle_termination
+; IRQ 0xFC
+; edi function 
+; esi argc 
+; r8 argarr 
+_asm_irq_kerncall:
+        ctxsav
+        call gsd_handle_kerncall
         ctxrstor
         iretq
 
 
+_asm_on_burst_end:
+        ctxsav
+        mov rdi,rsp
+        jmp gsd_next_process
+
+; NORETURN void _asm_goto_burst(void* rsp)
+_asm_goto_burst:
+        mov rsp,rdi
+        ctxrstor
+        iretq
