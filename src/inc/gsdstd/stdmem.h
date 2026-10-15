@@ -1,6 +1,9 @@
 #ifndef stdmem_h
 #define stdmem_h
 #include "stdtype.h"
+#define Pow2AlignUp(x) x == 0 ? 1 : ((x-(x & 7)) & ((x-(x & 7))-1)) << 1
+
+
 void bset(u8* dest,u8 val,size n);
 void wset(u16* dest,u16 val,size n);
 void dset(u32* dest,u32 val,size n);

@@ -48,5 +48,6 @@ enum gsd_stdstatus {
 
 #define status_assert(sv,code) if(sv != code) 
 #define status_assert_ok(sv) if(sv != gsd_ok) 
-
+#define max(a,b) a > b ? a : b
+#define min(a,b) a < b ? a : b
 #endif

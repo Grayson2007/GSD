@@ -51,7 +51,8 @@ gdt_pointer:
 
 section .bss
 align 4096
-; Small 32K stack just to kickstart everything 
+; Small 32k stack just to kickstart everything 
+; (Only used while detecting CPU cores )
 ; Entire Bootloader will be idenity mapped 
 ; Once the Kernel has what it need these pages will be freed up 
 boot_stack:

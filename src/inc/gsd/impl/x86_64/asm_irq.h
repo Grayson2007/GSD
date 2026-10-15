@@ -1,6 +1,9 @@
 #ifndef asm_irq_h
 #define asm_irq_h
 #include <gsd-common.h>
+
+
+
 NORETURN void _asm_onirq_0();
 NORETURN void _asm_onirq_1();
 NORETURN void _asm_onirq_2();
@@ -253,7 +256,6 @@ NORETURN void _asm_onirq_248();
 NORETURN void _asm_onirq_249();
 NORETURN void _asm_on_terminate();
 
-NORETURN void _asm_on_terminate();
 
 
 

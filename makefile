@@ -1,4 +1,17 @@
+include config.mk
+.PHONY: loader kernel clean
 
-.PHONY: gsdb-x86_64-efi
-gsdb-x86_64-efi:
-	make -f src/loader/impl/x86/efi-x86_64/makefile
+
+kernel:
+	make -f src/kernel/makefile
+
+clean:
+	rm -rf build/kernel/$(ARCH)/o/*.o
+loader:
+	make -f src/loader/impl/$(ARCH)/makefile
+copy-gsdb:
+	./copy-toiso.sh
+boot:
+	./boot-img/bootx64.sh
+menuconfig:
+	

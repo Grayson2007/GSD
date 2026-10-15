@@ -27,6 +27,7 @@ Planned to Contain:
 - gsdenv.h
 - gsdfloatmath.h
 - gsdtime.h
+- kerncall.h
 
 
 Will be Builtin to the kernel and a Libc wrapper will be made so it can be used with the existing C standard for non GSD systems 

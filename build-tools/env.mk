@@ -1,0 +1,10 @@
+ARCH=x86_64 
+TARGETS=loader kernel
+DEF_CC=gcc
+DEF_LD=
+DEF_AS=
+DEF_CF=
+DEF_CDEFS=
+DEF_CINC=
+DEF_LD=
+DEF_ASF=

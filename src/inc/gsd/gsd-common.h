@@ -3,19 +3,22 @@
 #include "gsd-config.h"
 #include <gsdstd/stdtype.h>
 #include <gsdstd/stdmem.h>
-#include <gsdstd/rbtree.h>
 #include <gsdstd/arrlist.h>
+#include <rb_tree.h>
 #include <stdalign.h>
 #include <float.h>
 typedef int gsd_atomic;
 typedef long gsd_latomic;
-typedef u32 gsd_procid;
-typedef u32 gsd_threadid;
 typedef u32 gsd_userid;
 typedef u32 gsd_groupid;
 typedef u32 gsd_coreid;
+typedef u32 gsd_procid;
+typedef u32 gsd_threadid;
 typedef u32 gsd_resourceid; // A Resource ID is a number for anything that the 
 // process is using 
+
+
+
 
 int gsd_try_aquire(gsd_atomic* atomic);
 void gsd_release(gsd_atomic* atomic);
@@ -26,6 +29,9 @@ void atomic_decrement(gsd_atomic* value);
 
 void latomic_increment(gsd_latomic* value);
 void latomic_decrement(gsd_latomic* value);
+
+
+
 
 
 typedef struct s_gsd_permission_target {
@@ -57,7 +63,7 @@ enum rkey_types {
         rkeyt_strings,
         rkeyt_handle,
         rkeyt_boolean,
-        rkeyt_blob,
+        rkeyt_blob
 };
 
 
@@ -100,18 +106,6 @@ typedef struct ALIGNED(sizeof(uintptr_t)) s_gsd_registry_key {
         } ALIGNED(sizeof(uintptr_t)) value;
 }  gsd_registry_key;
 
-
-typedef struct {
-
-        u32 crc32; // checksum for this structure (For security)
-        gsd_procid id; // id for this process 
-        size descriptor_size; // sizeof the descriptor 
-        rbt thread_tree; // rbt structure for thread tree 
-        rbt children_tree; // child processes tree
-        rbt memlayout_tree; // virtual memory layout 
-        gsd_userid owner; // owner 
-        gsd_groupid owning_group; // group user 
-} gsdproc_common_header;
 
 
 

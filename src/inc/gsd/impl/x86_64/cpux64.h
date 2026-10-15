@@ -12,7 +12,7 @@ enum CPU_states {
 
 
 typedef struct {
-        gsd_coreid system_id;
+        gsd_coreid logical_id;
         u16 apic_cluster;
         u16 apic_processor;
         gsd_threadid executing_thread;
