@@ -4,4 +4,5 @@
 #define SYS_PAGE_SIZE 4096
 #define SYS_MEMORY_ORDER 12
 #include "vmmap.h"
+#define _ARCH_ASM_BIG4_AVL
 #endif

@@ -1,6 +1,7 @@
 #include <gsd-memory.h>
 #include <gsd-thread.h>
-
+struct rb_tree KVMM;
+static spinlock KVMM_SPIN;
 
 
 static int rb_ndcmp(const struct rb_node* a,const struct rb_node* b) {
@@ -32,31 +33,56 @@ static int rb_cmp(const struct rb_node* a, const void*b) {
 
 
 
-status vmm_alloc_page(gsdpage* page,uintptr_t vmin,uintptr_t vmax) {
+status vmm_alloc_page(struct rb_tree* vmm,gsdpage* page,uintptr_t vmin,uintptr_t vmax) {
         
         page->vaddr = vmin; 
         size addr_size = vmax-vmin;
         if((1ul << (page->order+12)) > addr_size) { return gsd_out_of_resources;}
         uintptr_t max_possible_addr = vmax-(1ul << (page->order+12));
-        gsdproc_common_header* proc = pself_structure();
-        gsdpage* nodepg = (gsdpage*)rb_tree_search(&proc->vmm,&page,&rb_cmp);
+        gsdpage* nodepg = (gsdpage*)rb_tree_search(vmm,&page,&rb_cmp);
         while(nodepg) {
-                uintptr_t node_max = nodepg->vaddr+(1ul << (nodepg->order+12));
-                if(max_possible_addr  <= node_max) { return gsd_out_of_resources;}
-                page->vaddr = node_max;
-                nodepg = (gsdpage*)rb_tree_search(&proc->vmm,&page->vaddr,&rb_cmp);
+                gsdpage* next = (gsdpage*)rb_node_next((struct rb_node*)&nodepg->rb_link);
+                if(next && (next->vaddr+(1ul << next->order)*SYS_PAGE_SIZE) >= vmax) 
+                {
+                        return gsd_out_of_resources;
+                }
+
+                if(!next || (next->vaddr-nodepg->vaddr) >= addr_size) { 
+                        page->vaddr = nodepg->vaddr+(1ul << (nodepg->order))*SYS_PAGE_SIZE;
+                        break;
+                }
+        
         }
-        rb_tree_insert(&proc->vmm,(struct rb_node*)page,&rb_ndcmp);
+        rb_tree_insert(vmm,(struct rb_node*)&page->rb_link,&rb_ndcmp);
         return gsd_ok;
 }
 
 
-status vmm_free_page(uintptr_t vaddr) {
-        gsdproc_common_header* proc = pself_structure();
-        gsdpage* pg = (gsdpage*)rb_tree_search(&proc->vmm,&vaddr,&rb_cmp);
+status vmm_free_page(struct rb_tree* vmm,uintptr_t vaddr) {
+        gsdpage* pg = (gsdpage*)rb_tree_search(vmm,&vaddr,&rb_cmp);
         if(!pg) { return gsd_not_present;}
-        rb_tree_remove(&proc->vmm,(struct rb_node*)pg);
-        GsdFreePage(pg);
+        mmu_unmap(vaddr);
+        rb_tree_remove(vmm,(struct rb_node*)pg);
+        gsd_free_page(pg);
         return gsd_ok;
 }
+
+
+status vmm_get_page(struct rb_tree* vmm,uintptr_t vaddr,gsdpage** outpg) {
+        gsdpage* pg = (gsdpage*)rb_tree_search(vmm,&vaddr,&rb_cmp);
+        if(!pg) { return gsd_not_present;}
+        *outpg = pg;
+        return gsd_ok;
+
+}
+
+
+
+status kvmm_alloc(gsdpage* page) {
+        spinlock_aquire(&KVMM_SPIN);
+        status s = vmm_alloc_page(&KVMM,page,(uintptr_t)KERNEL_OBJECT_BASE,(uintptr_t)KERNEL_OBJECT_END);
+        spinlock_release(&KVMM_SPIN);
+        return s;
+}
+
 

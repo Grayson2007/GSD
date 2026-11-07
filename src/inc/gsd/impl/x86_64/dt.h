@@ -20,15 +20,23 @@ typedef struct {
 
 void EncodeGdtEntry(GDT_ENTRY_INFO* info,u64* entryptr);
 
-typedef struct {
-        uintptr_t IST[7];
-        uintptr_t RSP[3];
-        u8* IOPB_BUFFER;
-        u32 tss_size;
-        u8* iopb_payload;
-} TSS_INFO;
+typedef  struct {
+        u32 _r0;
+        struct __attribute__((packed)) {
+                u32 lo; 
+                u32 hi;
+        }rsp[3];
+        u32 _r1[2];
+        struct __attribute__((packed)) {
+                u32 lo;
+                u32 hi;      
+        } IST[7];
+        u32 _r2[2];
+        u16 _r3;
+        u16 iopb; // always 104
+} __attribute__((packed)) TSS;
 
-void EncodeTSS(TSS_INFO* info,void* base);
+void EncodeTSS(TSS* tssptr,u64* gdtptr);
 
 
 enum gate_types {

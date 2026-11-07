@@ -1,4 +1,7 @@
+#include "ProcessorBind.h"
+#include "Uefi/UefiBaseType.h"
 #include "bootefi.h"
+#include <stdint.h>
 EFI_SYSTEM_TABLE* ST;
 EFI_HANDLE IMGH;
 x86_64_BootTable* BT;
@@ -87,7 +90,7 @@ void efi_printu64(u64 x,int base) {
                 len++;
         }       
         buffer[len] = u'\0';
-        efi_print(&buffer);
+        efi_print((CHAR16*)&buffer);
 
 }
 // My favorite boot service is ExitBootServices so we can say fuck you to this
@@ -102,7 +105,7 @@ EFI_STATUS ScanKernels() {
         boot_options.capacity = 8;
         boot_options.count = 0;
         boot_options.selected = 0;
-        ST->BootServices->AllocatePool(EfiLoaderData,sizeof(EFI_FILE_INFO*)*8,&boot_options.arr); 
+        ST->BootServices->AllocatePool(EfiLoaderData,sizeof(EFI_FILE_INFO*)*8,(void**)&boot_options.arr); 
         GSDBOOTDIR->SetPosition(GSDBOOTDIR,0);
         while(1) 
         {
@@ -114,7 +117,7 @@ EFI_STATUS ScanKernels() {
                 s = GSDBOOTDIR->Read(GSDBOOTDIR,&infsize,NULL);
                 if(EFI_ERROR(s) && s != EFI_BUFFER_TOO_SMALL) { efi_PANIC(u"Unable to scan kernels",s);}
                 if(!infsize) { return EFI_SUCCESS;}
-                efi_AllocPool(infsize,&inf);
+                efi_AllocPool(infsize,(void**)&inf);
                 s = GSDBOOTDIR->Read(GSDBOOTDIR,&infsize,inf);
                 if(EFI_ERROR(s)) {
                         efi_FreePool(inf);
@@ -142,11 +145,10 @@ EFI_STATUS ScanKernels() {
         }
 }
 
-
 static void LoadKernelElf(Elf64_Ehdr* elf_base,uintptr_t* out_entry_point) {
         // Verify the elf 
         u32* elf_signature = (u32*)(&elf_base->e_ident[0]);
-        if(*elf_signature != '\x7FELF') { 
+        if(*elf_signature != 0x464C457F) { 
                 efi_PANIC(u"Bad kernel binary detected",EFI_ABORTED);
         }
         if(elf_base->e_ident[EI_CLASS]!= ELFCLASS64) {
@@ -242,7 +244,7 @@ void FindRsdp() {
 
 void LoadKernel(uintptr_t* kernel_entry_point) {
         EFI_FILE_HANDLE dir;
-        EFI_STATUS s = GSDBOOTDIR->Open(GSDBOOTDIR,&dir,&boot_options.arr[boot_options.selected]->FileName,EFI_FILE_MODE_READ,EFI_FILE_DIRECTORY | EFI_FILE_SYSTEM);
+        EFI_STATUS s = GSDBOOTDIR->Open(GSDBOOTDIR,&dir,(CHAR16*)&boot_options.arr[boot_options.selected]->FileName,EFI_FILE_MODE_READ,EFI_FILE_DIRECTORY | EFI_FILE_SYSTEM);
         if(EFI_ERROR(s)) { efi_PANIC(u"Unable to open kernel directory",s);}
         EFI_FILE_HANDLE f_kernel_elf;
         EFI_FILE_HANDLE f_irfs_img;
@@ -282,7 +284,7 @@ void LoadKernel(uintptr_t* kernel_entry_point) {
         LoadKernelElf((Elf64_Ehdr*)kernel_elf_base,kernel_entry_point);
         s = AllocateKernelPages(&irfs_img_base,irfs_pages,gsdpg_kpage_attrib);
         if(EFI_ERROR(s)) { efi_PANIC(u"unable to allocate memory for irfs_img",s );}
-        s = f_irfs_img->Read(f_irfs_img,&irfs_size,(void*)irfs_img_base);
+        s = f_irfs_img->Read(f_irfs_img,(UINTN*)&irfs_size,(void*)irfs_img_base);
         if(EFI_ERROR(s)) { efi_PANIC(u"irfs read failed",s);}
         
         BT->irfs.pagec = irfs_pages;
@@ -305,7 +307,7 @@ void LoadKernel(uintptr_t* kernel_entry_point) {
 static void InitaliseGop() {
         EFI_GUID gop_id = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
         EFI_GRAPHICS_OUTPUT_PROTOCOL* gop;
-        EFI_STATUS s = ST->BootServices->LocateProtocol(&gop_id,NULL,&gop);
+        EFI_STATUS s = ST->BootServices->LocateProtocol(&gop_id,NULL,(void**)&gop);
         if(EFI_ERROR(s)) {
                 efi_PANIC(u"Gop is unavalible",s);
         }
@@ -359,7 +361,7 @@ void Menu_Redraw() {
                 if(i == boot_options.selected) {
                         efi_print(u" >> ");
                 } else { efi_print(u" ");}
-                efi_println(&boot_options.arr[i]->FileName);
+                efi_println((CHAR16*)&boot_options.arr[i]->FileName);
         }
         efi_println(u"------------------------");
         efi_println(u" Use UP/DOWN arrow keys to select.");
@@ -368,7 +370,7 @@ void Menu_Redraw() {
 NORETURN void ToKernel(uintptr_t entry_point) {
         efi_FlushPmm(); // Flush the Final state of the PMM to the mem_map 
         efi_UpdateMemoryMap(); // Update the memory map 
-        BT->mmap.efi.base = EFIMMAP.BASE;
+        BT->mmap.efi.base = (efi_descriptor*)EFIMMAP.BASE;
         BT->mmap.efi.desc_sz = EFIMMAP.DESC_SZ;
         BT->mmap.efi.map_sz = EFIMMAP.MAPSZ;
         BT->mmap.efi.ver = EFIMMAP.VER;
@@ -443,7 +445,7 @@ EFI_STATUS efi_main(EFI_HANDLE _imgh,EFI_SYSTEM_TABLE* _st) {
 
         Pmm_Init();
         efi_println(u"Setting up Boot table");
-        s = AllocateKernelPages(&BT,1,gsdpg_kpage_attrib);
+        s = AllocateKernelPages((EFI_PHYSICAL_ADDRESS*)&BT,1,gsdpg_kpage_attrib);
         if(EFI_ERROR(s)) { efi_PANIC(u"Boot Table setup Failed",s); }
         s = efi_KCR3_map((EFI_VIRTUAL_ADDRESS)(BOOT_TABLE_ADDRESS),(EFI_PHYSICAL_ADDRESS)BT);
         if(EFI_ERROR(s)) { efi_PANIC(u"Boot Table mapping Failed",s); }
@@ -452,7 +454,7 @@ EFI_STATUS efi_main(EFI_HANDLE _imgh,EFI_SYSTEM_TABLE* _st) {
         BT->signature = boottab_signature;
         BT->max_physical_address = MAX_PHYSICAL_ADDRESS;
         ST->BootServices->CopyMem((void*)&BT->efirt,(void*)ST->RuntimeServices,sizeof(EFI_RUNTIME_SERVICES)); 
-        BT->loader.base = GSDBOOT_IMG->ImageBase;
+        BT->loader.base = (uintptr_t)GSDBOOT_IMG->ImageBase;
         BT->loader.pagec = ((GSDBOOT_IMG->ImageSize/EFI_PAGE_SIZE)+((GSDBOOT_IMG->ImageSize % EFI_PAGE_SIZE) ? 1 : 0));
         efi_println(u"Boot table setup sucessfully");
         efi_println(u"Scanning for kernels...");

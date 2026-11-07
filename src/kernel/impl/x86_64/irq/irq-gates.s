@@ -63,15 +63,14 @@ _asm_onirq_%+i:
 ; IRQ 251
 _asm_on_terminate:
         jmp gsd_handle_termination
-; IRQ 0xFC
-; edi function 
-; esi argc 
-; r8 argarr 
+
+; st
 _asm_irq_kerncall:
         ctxsav
         call gsd_handle_kerncall
+        mov [rsp+512],rax ; patch the return value into the register status
         ctxrstor
-        iretq
+        sysexit
 
 
 _asm_on_burst_end:
@@ -83,4 +82,5 @@ _asm_on_burst_end:
 _asm_goto_burst:
         mov rsp,rdi
         ctxrstor
-        iretq
+        sysexit
+

@@ -1,9 +1,9 @@
 #ifndef asmx64_h
 #define asmx64_h
-#include "gsd-common.h"
+#include <gsd-common.h>
+#include <gsd-thread.h>
+#include <immintrin.h>
 
-u64 _rdrand();
-u64 _rdseed();
 #define _CPUID_EAX 0
 #define _CPUID_EBX 1
 #define _CPUID_ECX 2
@@ -22,6 +22,20 @@ void _wbinvd();
 void _cli();
 void _sti();
 void _invlpg(uintptr_t vaddr);
+uintptr_t _rdfsbase();
+void _wrfsbase(uintptr_t addr);
+bool _asm_spin_aquire(mutex* lock,size attempt);
+void _asm_spin_aquire_ind(mutex* lock);
+void _asm_spin_release(mutex* lock);
+bool _asm_cmpxchg(gsd_atomic* ptr,int val,int swap);
 
+void _asm_atomic_inc(u32* value);
+void _asm_atomic_incl(u64* value);
+void _asm_atomic_dec(u32* value);
+void _asm_atomic_decl(u64* value);
+
+void _asm_spinlock_aquire(spinlock* lock);
+void _asm_spinlock_release(spinlock* lock);
+NORETURN void _asm_flush_stack(uintptr_t rsp,uintptr_t rbp,uintptr_t rip);
 
 #endif

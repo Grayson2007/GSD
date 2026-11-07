@@ -21,8 +21,8 @@
  */
  
 // EDIT by Grayson: Removed assertions for kernel context 
-// Also Removed stdio/stdlib/string.h Rep
-// Modified to work with GSD. Orignal repository: github.com/gfxstrand/rb-tree
+// Also Removed stdio,stdlib,string.h 
+// Modified to work with GSD. Orignal repository: https://www.github.com/gfxstrand/rb-tree
 
 #include <gsd-common.h>
 #include <gsd-memory.h>

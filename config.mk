@@ -2,7 +2,7 @@
 export DEBUG=1
 export ARCH=x86_64
 export TC_CC=gcc
-export TC_CF=-ffreestanding -nostdlib -mno-red-zone -fno-stack-protector -mcmodel=large -c -DGSD_ARCHITECTURE=$(ARCH)
+export TC_CF=-ffreestanding -nostdlib -masm=intel -mno-red-zone -fno-stack-protector -mcmodel=large -c -DGSD_ARCHITECTURE=$(ARCH)
 export TC_LD=ld 
 export TC_LF=-nostdlib -static
 export TC_AS=nasm

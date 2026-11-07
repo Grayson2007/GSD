@@ -34,8 +34,14 @@ typedef _Bool boolean;
 #define bool boolean
 #define true 1
 #define false 0
-
+typedef int resourceid; 
 typedef int status;
+
+#define RESOURCE_STDOUT 1
+#define RESOURCE_STDIN 0
+#define RESOURCE_STDERROR 2
+
+
 enum gsd_stdstatus {
         gsd_ok,
         gsd_forbidden,

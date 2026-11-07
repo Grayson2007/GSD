@@ -342,7 +342,7 @@ void Pmm_Init() {
                         ) 
                         {
                                 flags |= gsdpg_a_identmap;
-                                flags |= gsdpg_s_reserved;
+                                flags |= gsdpg_a_reserved;
                         }
                         index start_phys_index = desc->PhysicalStart/EFI_PAGE_SIZE;
                         index end_index = start_phys_index+desc->NumberOfPages;

@@ -1,153 +1,164 @@
-#include "gsd-memory.h"
-
+#include <gsd-memory.h>
+#include <gsd-thread.h>
 static gsdpage* kmem_vregion_base;
-
-
-
-
-#define mem_map_init_none 0
-#define mem_map_init_stage1_done 1
-#define mem_map_init_completed 2  
-static int mem_map_init_status = mem_map_init_none;
-static gsd_atomic freelist_mutex;
-static gsd_atomic mem_map_mutex;
-static gsdpage* freelist[SYS_MEMORY_ORDER];
-static  gsdpage* mem_map = (gsdpage*)(MEM_MAP_ADDRESS);
+static spinlock freelist_spins[SYS_MEMORY_ORDER+1]; 
+static gsdpage* freelist[SYS_MEMORY_ORDER+1];
+static gsdpage* mem_map = (gsdpage*)(MEM_MAP_ADDRESS);
 static size syspagec;
 
-
 static status gsd_locate_page(u64 attrib,int order,gsdpage** out) {
-        gsdpage* pg = NULL;
+        bool found_page = false;
+        gsdpage* curr_page;
         u64 capabilities = attrib & page_capability_mask;
-        while(order < SYS_MEMORY_ORDER) {
-                if(!freelist[order]) { order++; continue;} 
-                pg = freelist[order];
-                while(pg->flags & capabilities != capabilities) { // Find a free page in the current order
-                        /*  If last page on this order set pg to NULL
-                        * so the parent loop knows no page was found on this level to go up the freelist 
-                        */ 
-                        if(!pg->nextfree) { pg = NULL; order++; break;} 
-                        pg = pg->nextfree; 
+        for(int o = order; order <= SYS_MEMORY_ORDER; o++) 
+        {
+                spinlock_aquire(&freelist_spins[o]);
+                curr_page = freelist[o];
+                while(curr_page) {
+                        // test the page
+                        if(curr_page->flags & capabilities != capabilities) {
+                                curr_page = curr_page->nextfree;
+                                continue;
+                        }
+                        found_page = true;
+                        break;
                 }
-                if(!pg) { continue;} 
-                // We found one! 
-                break;
+        
+                if(found_page) 
+                { 
+                        // if we found our page 
+                        // remove curr_page from it's freelist and update pointers
+                        if(curr_page->prevfree) {
+                                curr_page->prevfree->nextfree = curr_page->nextfree;
+                        } else { // this is the head
+                                freelist[o] = curr_page->nextfree;
+                        }
+                        if(curr_page->nextfree) {
+                                curr_page->nextfree->prevfree = curr_page->prevfree;
+                        }
+
+                        *out = curr_page;
+                        spinlock_release(&freelist_spins[o]);
+                        return gsd_ok;
+                }
+                spinlock_release(&freelist_spins[o]); // otherwise release the spinlock 
+                
         }
-        *out = pg; // Page remains NULL if all else failed 
-        return !pg ? gsd_out_of_resources : gsd_ok;
+        *out = NULL;
+        return gsd_out_of_resources;
 }
+
 
 static void split_page(gsdpage* pg) {
-        index pg_idx = pg-mem_map;
-        index buddy_pg_idx = pg_idx+(1 << (pg->order-1));
-        if(freelist[pg->order]  == pg) { // Update freelist root if this is the root of that order's freelist 
-                freelist[pg->order] = pg->nextfree;
+        if(!pg->order) { return;}
+        int new_order = pg->order-1;
+        spinlock_aquire(&freelist_spins[new_order]);
+        index pgi = pg-mem_map;
+        index buddyi = pgi ^ (1ul << new_order);
+        gsdpage* buddy = &mem_map[buddyi];
+        if(freelist[new_order]) {
+                freelist[new_order]->prevfree = buddy;
         }
-        pg->order--;
-
-        // setup the buddy page this page wont be added as it's going to be allocated 
-        gsdpage* buddy = &mem_map[buddy_pg_idx];
-        buddy->order = pg->order;
-        buddy->flags &= ~(gsdpg_s_present); // disable present bit (Flags are setup by loader but just a percaution)
-        buddy->nextfree = freelist[buddy->order]; 
-        if(freelist[buddy->order]) {
-                freelist[buddy->order]->prevfree = buddy;
-        }
-        freelist[buddy->order] = buddy;
-
-
-        // Update freelist pointers 
-        if(pg->nextfree) { 
-                pg->nextfree->prevfree = pg->prevfree;
-        }
-        if(pg->prevfree) {
-                pg->prevfree->nextfree = pg->nextfree;
-        }
-        pg->nextfree = NULL; // Clear out freelist pointers 
-        pg->prevfree = NULL;
-
+        buddy->nextfree = freelist[new_order];
+        freelist[new_order] = buddy;
+        buddy->order = new_order;
+        pg->order = new_order;
+        spinlock_release(&freelist_spins[new_order]);
 }
 
+
+
 status GsdAllocatePage(u64 attribute,int order,gsdpage** outpage) {
-
-        status s;
-        gsdpage* found_page = NULL;
-        u64 status_flags = attribute & page_status_mask;
-        // find a free page that satisfys our requirements
-        s = gsd_locate_page(attribute,order,&found_page);
-        status_assert_ok(s) { return s;} // If no page exists this function will return gsd_out_of_resources from gsd_locate_page
-
-        // Now to split and add buddies to freelist 
-        while(found_page->order > order) {
-                split_page(found_page);
+        status s = gsd_locate_page(attribute,order,outpage);
+        status_assert_ok(s) { return s;}
+        gsdpage* pg = *outpage;
+        while(pg->order > order) {
+                // split our page down 
+                split_page(pg);
         }
-
-
-        found_page->flags = (found_page->flags & page_attribute_mask) | status_flags | gsdpg_s_present;
-        *outpage = found_page;
+        pg->rc = 1;
         return gsd_ok;
 }
 
 // Tries to combine a page 
 // If succeeded the pg pointer variable from the caller is updated 
 // it will either stay the same or become the buddy page 
+
+#define non_combinable_flags gsdpg_s_present | gsdpg_a_reserved 
 static bool combine_page(gsdpage** pg_ptr) {
         gsdpage* page = *pg_ptr;
-        if(page->flags & gsdpg_s_reserved) {return false;} // was this marked as reserved? If so NOPE 
-        if(page->order+1 >= SYS_MEMORY_ORDER) { return false;} // Already at max order 
+        if(page->order >= SYS_MEMORY_ORDER) { return false;}
+        if(page->flags & gsdpg_a_slack) { return false;} // slack pages cannot be merged 
+        // otherwise aquire freelists of the current order and order+1
+        spinlock_aquire(&freelist_spins[page->order]);
         index pgi = page-mem_map;
-        index buddy_index = (pgi ^ (1ul << page->order));
-        gsdpage* buddy = &mem_map[buddy_index];
-        if(buddy->flags & gsdpg_s_present) { return false; } // page is not free so we cannot combine 
-        if(buddy_index < pgi) { // this is a buddy
-                *pg_ptr = buddy;
-                page->flags &= ~(page_status_mask); 
-                page->order = 0;
-                buddy->order++;
-                buddy->flags &= ~(page_status_mask);
-                return true;
+        index buddyi = pgi ^ (1ul << page->order);
+        gsdpage* buddy = &mem_map[buddyi];
+        if(buddy->flags & non_combinable_flags) {
+                spinlock_release(&freelist_spins[page->order]); 
+                return false;
         }
-        page->flags &= ~(page_status_mask); 
-        page->order++;
-        buddy->order = 0;
-        buddy->flags &= ~(page_status_mask);
+        if(buddyi < pgi) 
+        {
+                buddy->order = page->order+1;
+                page->order = 0;
+                page->flags &= ~(gsdpg_s_present);
+                *pg_ptr = buddy;
+                if(buddy->prevfree) {
+                        buddy->prevfree->nextfree = buddy->nextfree;
+                }
+                else { // buddy is the head of the freelist
+                        freelist[buddy->order-1] = buddy->nextfree;
+                }
+                if(buddy->nextfree) {
+                        buddy->nextfree->prevfree = buddy->prevfree;
+                }
+                spinlock_release(&freelist_spins[buddy->order-1]);
+                // now append our buddy to the 
+
+                spinlock_aquire(&freelist_spins[buddy->order]);
+                if(freelist[buddy->order]) {
+                        freelist[buddy->order]->prevfree = buddy;
+                }
+                buddy->nextfree = freelist[buddy->order];
+                freelist[buddy->order] = buddy;
+                spinlock_release(&freelist_spins[buddy->order]);
+
+   
+        }
+        else 
+        {
+                page->order++;
+                buddy->flags &= ~(gsdpg_s_present);
+                buddy->order = 0;
+                if(page->prevfree) {
+                        page->prevfree->nextfree = page->nextfree;
+                } else {
+                        freelist[page->order-1] = page->nextfree;
+                }
+                if(page->nextfree) {
+                        page->nextfree->prevfree = page->prevfree;
+                }
+                spinlock_release(&freelist_spins[page->order-1]);
+                spinlock_aquire(&freelist_spins[page->order]);
+                if(freelist[page->order]) {
+                        freelist[page->order]->prevfree = page;
+                }
+                page->nextfree = freelist[page->order];
+                freelist[page->order] = page;
+                spinlock_release(&freelist_spins[page->order]);
+        }
         return true;
 }
 
 
+
 void GsdFreePage(gsdpage* page) {
+        atomic_decrement(&page->rc);
+        if(page->rc) { return;}
         while(combine_page(&page));
-        page->nextfree = freelist[page->order];
-        if(freelist[page->order]) {
-                freelist[page->order]->prevfree = page;
-        }
-        freelist[page->order] = page;
 }
 
-
-// Mark a address range as reserved 
-void GsdMarkAddress(uintptr_t base_address,int order,u64 attrib) {
-
-        if(mem_map_init_status != mem_map_init_stage1_done) { return;} // safety gate to prevent this being called after the memory manager was fully initalised
-        index page_index = (base_address/SYS_PAGE_SIZE)/(1ul << order); // Setup an aligned down base address 
-        index buddy_index = page_index ^ (1ul << order);
-        if(page_index > syspagec) { return;}
-        mem_map[page_index].order = order;
-        mem_map[page_index].flags |= (attrib & page_status_mask) | gsdpg_s_present;
-        // add the buddy to the freelist
-        mem_map[buddy_index].order = order;
-        mem_map[buddy_index].flags &= (attrib & page_status_mask);
-        mem_map[buddy_index].flags |= gsdpg_s_present | gsdpg_s_reserved;
-        if(freelist[order]) {
-                freelist[order]->prevfree = &mem_map[buddy_index];
-        }
-        mem_map[buddy_index].nextfree = freelist[order];
-        freelist[order] = &mem_map[buddy_index];
-        
-        for(index i = page_index+1; i < buddy_index; i++) {
-                mem_map[page_index].flags |= gsdpg_s_reserved;
-        }
-}
 
 // -- Memory Manager Initalisation -- // 
 
@@ -163,68 +174,69 @@ void GsdMarkAddress(uintptr_t base_address,int order,u64 attrib) {
 // After that we will map a heap area for the kernel
 // 
 
+// mark all avalible slack pages 
+static void _mark_slack_pages(index blkidx) {
+        size order_pagec = (1ul << SYS_MEMORY_ORDER);
+        u64 rsvd_flags = gsdpg_a_reserved | gsdpg_s_present;
+        for(index i = 0; i < order_pagec; i++) {
+                if(!vaddr_test((uintptr_t)&mem_map[blkidx+i])) { continue;}
+                if(!(mem_map[blkidx+i].flags & gsdpg_a_valid)) { continue;}
+                if(mem_map[blkidx+i].flags & rsvd_flags) { continue;}
+                mem_map[blkidx+i].flags |= gsdpg_a_slack;
+                mem_map[blkidx+i].nextfree = freelist[0];
+                mem_map[blkidx+i].rc = 0;
+                if(freelist[0]) {
+                        freelist[0]->prevfree = &mem_map[blkidx+i];
+                }
+                freelist[0] = &mem_map[blkidx+i];
 
 
-
+        }
+}
 
 status GsdMemoryInit(uintptr_t max_paddr) {
-        index max_pageidx = max_paddr/SYS_PAGE_SIZE;
-        index max_order_pagec = (1 << SYS_MEMORY_ORDER);
-        bool max_order_free;
-        index max_order_blocks = max_pageidx/max_order_pagec;
-        index slack_blocks = max_pageidx % max_order_pagec;
-        
-        for(index b = 0; b < max_order_blocks; b++)
+        // zero out freelist 
+        for(index i = 0; i < SYS_MEMORY_ORDER+1; i++) {
+                freelist[i] = (gsdpage*)NULL;
+        }
+
+        // iterate through every page and add blocks of max_order to the max order freelist 
+        // and append all slack pages to the order 0 freelist 
+        size pagec = max_paddr/SYS_PAGE_SIZE;
+        size order_pagec = (1ul << SYS_MEMORY_ORDER);
+        size order_block_count = pagec/order_pagec;
+        index baseidx = 0;
+        bool block_avalible = true;
+        u64 rsvd_flags = gsdpg_a_reserved | gsdpg_s_present;
+        for(index i = 0; i < order_block_count; i++)
         {
-                max_order_free = true;
-                index base_idx = b*max_order_pagec;
-                for(index p = 0; p < max_order_pagec; p++)
+                for(index j = 0; j < order_pagec; j++)
                 {
-                        if(!vaddress_isvalid((uintptr_t)&mem_map[base_idx]+p)) { max_order_free = false; break;} 
-                        if(!mem_map[base_idx+p].flags & gsdpg_a_valid
-                        || mem_map[base_idx+p].flags & (gsdpg_a_readonly | gsdpg_a_readonly)
-                        || mem_map[base_idx+p].flags & (gsdpg_s_reserved & gsdpg_s_present)) { max_order_free = false; break;}  
+                
+                        if(!vaddr_test((uintptr_t)&mem_map[baseidx+j])) { block_avalible = false; break;}
+                        if(!(mem_map[baseidx+j].flags & gsdpg_a_valid)) { block_avalible = false; break;}
+                        if(mem_map[baseidx+j].flags & rsvd_flags) { block_avalible = false; break;}
                 }
-
-
-                if(!max_order_free)
-                {
-                        for(index p = 0; p < max_order_pagec; p++)
-                        {
-                                if(!vaddress_isvalid((uintptr_t)&mem_map[base_idx]+p)) { continue;}
-                                if(!mem_map[base_idx+p].flags & gsdpg_a_valid) { continue;}
-                                if(mem_map[base_idx+p].flags & (gsdpg_a_readonly | gsdpg_a_readonly)) { continue;}
-                                if(mem_map[base_idx+p].flags & (gsdpg_s_reserved & gsdpg_s_present)) { continue;}
-                                if(freelist[0]) {
-                                        freelist[0]->prevfree = &mem_map[base_idx+p];
-                                }
-                                mem_map[base_idx+p].nextfree = freelist[0];
-                                freelist[0] = &mem_map[base_idx+p];
+                if(!block_avalible) {
+                        _mark_slack_pages(baseidx);
+                        block_avalible = true;
+                }
+                else {
+                        mem_map[baseidx].order = SYS_MEMORY_ORDER;
+                        mem_map[baseidx].nextfree = freelist[SYS_MEMORY_ORDER];
+                        if(freelist[SYS_MEMORY_ORDER]) {
+                                freelist[SYS_MEMORY_ORDER]->prevfree = &mem_map[baseidx];
                         }
+                        freelist[SYS_MEMORY_ORDER] = &mem_map[baseidx];
                 }
-                else 
-                {
-                        if(freelist[SYS_MEMORY_ORDER-1]) {
-                                freelist[SYS_MEMORY_ORDER-1]->prevfree = &mem_map[base_idx];
-                        } 
-                        mem_map[base_idx].nextfree = freelist[SYS_MEMORY_ORDER-1];
-                        freelist[SYS_MEMORY_ORDER-1] = &mem_map[base_idx];
-                }
+                baseidx += order_block_count;
         }
-        // Check and add slack pages at the end if they exist 
-        index base_idx = max_order_blocks*max_order_pagec;
-        for(index p = 0; p < slack_blocks; p++)
-        {
-                if(!vaddress_isvalid((uintptr_t)&mem_map[base_idx]+p)) { continue;}
-                if(!mem_map[base_idx+p].flags & gsdpg_a_valid) { continue;}
-                if(mem_map[base_idx+p].flags & (gsdpg_a_readonly | gsdpg_a_readonly)) { continue;}
-                if(mem_map[base_idx+p].flags & (gsdpg_s_reserved & gsdpg_s_present)) { continue;}
-                if(freelist[0]) {
-                        freelist[0]->prevfree = &mem_map[base_idx+p];
-                }
-                mem_map[base_idx+p].nextfree = freelist[0];
-                freelist[0] = &mem_map[base_idx+p];
+        
+
+        for(index i = 0; i <= SYS_MEMORY_ORDER; i++) {
+                freelist_spins[i] = 0;
         }
+
         return gsd_ok;
 }
 
@@ -232,4 +244,35 @@ uintptr_t GsdGetPaddr(gsdpage* pg) {
         if(pg < mem_map) { return (uintptr_t)NULL;}
         uintptr_t out = ((uintptr_t)(pg-mem_map))*SYS_PAGE_SIZE;
         return out;
+}
+
+gsdpage* get_corrisponding_gsdpage(uintptr_t paddr) {
+        index pgi = paddr/SYS_PAGE_SIZE;
+        if(!vaddr_test((uintptr_t)&mem_map[pgi])) { return NULL;}
+        return &mem_map[pgi];
+}
+
+
+
+
+
+status map_page(gsdpage* pg) {
+        gsdcore* self = cself();
+        gsd_procid selfid = self->current_thread->process->id;
+        if(selfid && selfid != pg->owning_process) { 
+                return gsd_invalid_param;
+        }
+        atomic_increment(&pg->rc);
+        return mmu_map(pg);
+}
+
+
+status unmap_page(gsdpage* pg) {
+        gsdcore* self = cself(); // Bounds check for the thread 
+        gsd_procid selfid = self->current_thread->process->id;
+        if(selfid && selfid != pg->owning_process) { 
+                return gsd_invalid_param;
+        }
+        return mmu_unmap_page(pg);
+
 }

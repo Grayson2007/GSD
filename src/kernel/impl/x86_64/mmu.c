@@ -5,8 +5,7 @@
 #include <impl/x86_64/asm.h>
 #include <gsd-thread.h>
 static bool pat_supported = false;
-
-#define pt_attrib gsdpg_rw | gsdpg_s_page_table | gsdpg_valid_present | gsdpg_s_kernelpg
+#define pt_attrib gsdpg_rw | gsdpg_s_page_table | gsdpg_s_kernelpg
 enum x64_pat_options {
         pat_uncacheable,
         pat_write_combine,
@@ -44,7 +43,7 @@ enum x64_page_attributes {
         pga_xd = (1ul << 63)
 };
 
-bool vaddress_isvalid(uintptr_t vaddr) {
+bool vaddr_test(uintptr_t vaddr) {
         index pml3i = vaddr >> 39 & 0x1FF;
         index pml2i = vaddr >> 30 & 0x1FF;
         index pml1i = vaddr >> 21 & 0x1FF;
@@ -65,25 +64,14 @@ bool vaddress_isvalid(uintptr_t vaddr) {
 }
 
 void free_page_table(uintptr_t paddr) {
-
+        
 }
 
-status new_page_table(int lvl,uintptr_t* out) {
-        gsdproc_common_header* proc = pself_structure();
-        status s;
+status new_page_table(uintptr_t* out) {
         gsdpage* pg;
-        s = GsdAllocatePage(pt_attrib,0,&pg);
-        status_assert_ok(s) {
-                return s;
-        }
-        pg->ptinfo.lvl = lvl;
-        if(proc->page_tables) {
-                proc->page_tables->ptinfo.prev_pt = pg;
-        }
-        pg->ptinfo.next_pt = proc->page_tables;
-        pg->prevfree->prevfree = NULL;
-        proc->page_tables = pg;
-        *out = GsdGetPaddr(pg);
+        status s = gsd_allocate_page(pt_attrib,0,&pg);
+        status_assert_ok(s) { return s;}
+        *out = get_paddr_by_gsdpage(pg);
         return gsd_ok;
 }
 
@@ -124,7 +112,7 @@ static status _mmu_mark2m(uintptr_t vaddr,uintptr_t phys,u64 attrib) {
         uintptr_t phys_l2 = 0;
         u64* pml4 = (u64*)(PML4_ADDRESS);
         if(!pml4[pml3i] & 1) { 
-                s = new_page_table(3,&phys_l3);
+                s = new_page_table(&phys_l3);
                 status_assert_ok(s) {
                         return s;
                 }
@@ -132,7 +120,7 @@ static status _mmu_mark2m(uintptr_t vaddr,uintptr_t phys,u64 attrib) {
         }
         u64* pml3 = PGT_ADDRESS(511,511,pml3i);
         if(!pml3[pml2i] & 1) {
-                s = new_page_table(2,&phys_l2);
+                s = new_page_table(&phys_l2);
                 status_assert_ok(s) {
                         if(phys_l3) { free_page_table(phys_l3); }
                         return s;
@@ -156,7 +144,7 @@ static status _mmu_mark4k(uintptr_t vaddr,uintptr_t phys,u64 attrib) {
         uintptr_t phys_l1 = 0;
         u64* pml4 = (u64*)(PML4_ADDRESS);
         if(!pml4[pml3i] & 1) { 
-                s = new_page_table(3,&phys_l3);
+                s = new_page_table(&phys_l3);
                 status_assert_ok(s) {
                         return s;
                 }
@@ -164,7 +152,7 @@ static status _mmu_mark4k(uintptr_t vaddr,uintptr_t phys,u64 attrib) {
         }
         u64* pml3 = PGT_ADDRESS(511,511,pml3i);
         if(!pml3[pml2i] & 1) {
-                s = new_page_table(2,&phys_l2);
+                s = new_page_table(&phys_l2);
                 status_assert_ok(s) {
                         if(phys_l3) { free_page_table(phys_l3); }
                         return s;
@@ -173,7 +161,7 @@ static status _mmu_mark4k(uintptr_t vaddr,uintptr_t phys,u64 attrib) {
         }
         u64* pml2 = PGT_ADDRESS(511,pml3i,pml2i);
         if(!pml2[pml1i] & 1) { 
-                s = new_page_table(1,&phys_l1);
+                s = new_page_table(&phys_l1);
                 status_assert_ok(s) {
                         if(phys_l3) { free_page_table(phys_l3);}
                         if(phys_l2) { free_page_table(phys_l2);}
@@ -189,10 +177,7 @@ static status _mmu_mark4k(uintptr_t vaddr,uintptr_t phys,u64 attrib) {
 
 static status _mmu_map_2m(gsdpage* page,u64 attrib) {
         index num_blocks = (1 << (page->order-9));
-        bool failed = false;
-        status s;
-        index failed_idx = 0;
-        uintptr_t pbase = GsdGetPaddr(page);
+        uintptr_t pbase = get_paddr_by_gsdpage(page);
         for(index i = 0; i < num_blocks; i++) {
                 status s = _mmu_mark2m(page->vaddr+(i << 21),pbase+(i << 21),attrib);
                 status_assert_ok(s) { return s;}
@@ -203,10 +188,10 @@ static status _mmu_map_2m(gsdpage* page,u64 attrib) {
 
 
 
-status mmu_map(gsdpage* page) {
+status mmu_map_page(gsdpage* page) {
         if(!page->vaddr) { return gsd_invalid_param;}
         u64 attrib = get_page_attributes(page);
-        uintptr_t phys = GsdGetPaddr(page);
+        uintptr_t phys = get_paddr_by_gsdpage(page);
         status s;
         if(page->order >= 9) 
         {
@@ -220,13 +205,14 @@ status mmu_map(gsdpage* page) {
         return gsd_ok;
 }
 
+
+
 void mmu_unmap(uintptr_t vaddr ) {
+        _invlpg(vaddr);
         index pml3i = vaddr >> 39 & 0x1FF;
         index pml2i = vaddr >> 30 & 0x1FF;
         index pml1i = vaddr >> 21 & 0x1FF;
         index pgi = vaddr >> 12 & 0x1FF;
-
-        
         u64* pml4 = (u64*)(PML4_ADDRESS);
         if(!pml4[pml3i] & 1) { return;}
         u64* pml3 = PGT_ADDRESS(511,511,pml3i);
@@ -237,8 +223,30 @@ void mmu_unmap(uintptr_t vaddr ) {
         if(pml2[pml1i] & (1 << 7)) { pml2[pml1i] = 0; return;}
         u64* pml1 = PGT_ADDRESS(pml3i,pml2i,pml1i);
         pml1[pgi] = 0;
-
 }
+
+
+status mmu_unmap_page(gsdpage* page) {
+        uintptr_t paddr = get_paddr_by_gsdpage(page);
+        if(page->order < 9)
+        {
+                size pagec = (1ul << page->order);
+                for(index i = 0; i < pagec; i++)
+                {
+                        mmu_unmap(paddr);
+                        paddr += 0x200000;
+                }
+                return gsd_ok;
+        }
+
+        size pagec = (1ul << (page->order));
+        for(index i = 0; i < pagec; i++) {
+                mmu_unmap(paddr);
+                paddr += 4096;
+        }
+        return gsd_ok;
+}
+
 
 
 void mmu_init() {
@@ -248,7 +256,12 @@ void mmu_init() {
                _wrmsr(PAT_MSR,GSD_PAT); // setup PAT 
                pat_supported = true;
         }
-
 }       
 
 
+
+
+
+
+
+// [@r,~]:[root,~]$ 

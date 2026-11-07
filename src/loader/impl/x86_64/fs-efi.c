@@ -9,10 +9,10 @@ EFI_FILE_HANDLE OPTDIR;
 EFI_STATUS efi_SetupFs() {
         EFI_STATUS s;
         EFI_GUID lim_id = EFI_LOADED_IMAGE_PROTOCOL_GUID;
-        s = ST->BootServices->HandleProtocol(IMGH,&lim_id,&GSDBOOT_IMG);
+        s = ST->BootServices->HandleProtocol(IMGH,&lim_id,(void*)&GSDBOOT_IMG);
         if(EFI_ERROR(s)) { return s;}
         EFI_GUID sfs_id = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
-        s = ST->BootServices->HandleProtocol(GSDBOOT_IMG->DeviceHandle,&sfs_id,&IOVOL);
+        s = ST->BootServices->HandleProtocol(GSDBOOT_IMG->DeviceHandle,&sfs_id,(void*)&IOVOL);
         if(EFI_ERROR(s)) { return s;}
         s = IOVOL->OpenVolume(IOVOL,&ROOTDIR);
         if(EFI_ERROR(s)) { return s;}

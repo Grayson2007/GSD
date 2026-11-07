@@ -38,9 +38,18 @@ void EncodeGdtEntry(GDT_ENTRY_INFO* info,u64* entryptr)
         entryptr[1] = ((info->base >> 32) & 0xFFFFFFFF);
 
 }
-void EncodeTSS(TSS_INFO* info,void* base) {
-        u64* outptr = (u64*)base;
-
+void EncodeTSS(TSS* tss_base,u64* gdtbase) {
+        GDT_ENTRY_INFO inf = {
+                .base = (uintptr_t)tss_base,
+                .executable = false,
+                .system = true,
+                .system_type = gdt_tss_avl,
+                .writable = true,
+                .limit = 4,
+                .scale_4k = true,
+                .PL = 0
+        };
+        EncodeGdtEntry(&inf,gdtbase);
 }
 
 void EncodeIDT(IDT_INFO* info,u64* entryptr) {

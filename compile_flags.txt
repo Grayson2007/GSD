@@ -1,0 +1,5 @@
+-Ideps/common
+-Isrc/inc/gsd
+-Isrc/inc
+-Ideps/common/efi-headers/Include
+-Ideps/common/efi-headers/Include/X64/

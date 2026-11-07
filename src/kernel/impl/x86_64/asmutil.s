@@ -32,9 +32,21 @@ global _rdtsc
 global _cli
 global _sti
 
+global _rdfsbase
+global _wrfsbase
 global _wbinvd
 global _invlpg
 global gsd_try_aquire
+global gsd_release
+global _asm_spin_aquire
+global _asm_spin_aquire_ind
+global _asm_spin_release
+global _asm_cmpxchg
+global _asm_xchg
+global _asm_lxchg
+global _asm_pxchg
+global _asm_spinlock_aquire
+global _asm_spinlock_release
 _cli:
         cli 
         ret
@@ -149,3 +161,93 @@ atomic_increment:
 atomic_decrement:
         lock dec dword [rdi]
         ret
+
+_rdfsbase:
+        rdfsbase rax
+        ret
+_wrfsbase:
+        wrfsbase rdi
+        ret
+
+
+; _asm_spin_aquire(mutex* lock,size attempt)
+_asm_spin_aquire_attempt:
+        mov eax,0
+        mov ecx,1
+
+        .aquloop:
+                cmp dword [rdi],0
+                jz .try
+                pause
+                jmp .aquloop
+        .try:
+                lock cmpxchg [rdi],ecx
+                jz .sucess
+                dec rsi
+                jz .fail
+                jmp .aquloop
+        .sucess:
+                mov rax,1
+                ret
+        .fail:
+                mov rax,0
+                ret
+; asm_spin_release(mutex* lock)
+_asm_atomic_increment:
+        lock inc dword [rdi]
+        ret 
+_asm_atomic_decrement:
+        lock dec dword [rdi]
+        ret
+_asm_atomic_increment_long:
+        lock inc qword [rdi]
+        ret
+_asm_atomic_decement_long:
+        lock dec dword [rdi]
+        ret
+
+_asm_atomic_bit_test_set:
+        lock bts dword [rdi],esi
+        setnc eax
+        ret
+_asm_atomic_bit_test_set_long:
+        lock bts qword [rdi],rsi
+        setnc eax
+        ret
+
+
+
+_asm_cmpxchg:
+        mov eax,esi
+        lock cmpxchg[rdi],edx
+        jnz .fail
+        mov eax,1
+        ret
+        .fail:
+                mov eax,0
+                ret
+
+
+_asm_spinlock_aquire:
+        mov eax,0
+        mov ecx,1
+        .loop:
+                lock cmpxchg [rdi],ecx
+                jnz .fail
+                ret
+        .fail:
+                pause
+                jmp .loop
+_asm_spinlock_release:
+        mov [rdi],0
+        ret
+
+
+; rdi = rsp
+; rsi = rbp
+; rdx = jmp 
+global _asm_flush_stack
+_asm_flush_stack:
+        mov rsp,rdi
+        mov rbp,rsi
+        jmp rdx

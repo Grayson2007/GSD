@@ -5,6 +5,7 @@ import dialog
 
 vars:dict[str,str] = { }
 
+
 def export_to_makefile_args() -> str:
         out:str = ""
         for k,v in vars:
